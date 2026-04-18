@@ -39,7 +39,7 @@ export default function ProductDetailPage() {
         setPriceHistory(history);
         setReviews(revs.data);
       })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setLoading(false));
   }, [productId]);
 
@@ -129,7 +129,7 @@ export default function ProductDetailPage() {
 
           {/* Description */}
           {product.description && (
-            <p style={{ color: 'var(--color-text-secondary)', fontSize: '14px', lineHeight: 1.6 }}>
+            <p style={{ color: 'var(--color-text-secondary)', fontSize: '14px', lineHeight: 1.6, textAlign: 'justify' }}>
               {product.description}
             </p>
           )}
