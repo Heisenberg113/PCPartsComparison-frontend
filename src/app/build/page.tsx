@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Wrench, DollarSign, Loader2 } from 'lucide-react';
+import { Wrench, DollarSign, Loader2, Save, Check } from 'lucide-react';
 import { api, type BuildSuggestion } from '@/lib/api';
 import { formatPrice, categoryLabels } from '@/lib/utils';
+import { useAuth } from '@/lib/providers';
 
 const PURPOSES = [
   { key: 'gaming', label: '🎮 Gaming', desc: 'Ưu tiên GPU mạnh cho game AAA' },
@@ -16,12 +17,19 @@ const PURPOSES = [
 const BUDGETS = [10000000, 15000000, 20000000, 25000000, 30000000, 40000000, 50000000];
 
 export default function BuildPage() {
+  const { token, isLoggedIn } = useAuth();
   const [budget, setBudget] = useState(20000000);
   const [customBudget, setCustomBudget] = useState('');
   const [purpose, setPurpose] = useState('gaming');
   const [result, setResult] = useState<BuildSuggestion | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Save build state
+  const [buildName, setBuildName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const handleSuggest = async () => {
     const finalBudget = customBudget ? parseInt(customBudget) : budget;
@@ -30,14 +38,57 @@ export default function BuildPage() {
       return;
     }
     setError('');
+    setSaveSuccess(false);
+    setSaveError('');
     setLoading(true);
     try {
       const suggestion = await api.suggestBuild(finalBudget, purpose);
       setResult(suggestion);
+      // Auto-generate a build name
+      const purposeLabel = PURPOSES.find((p) => p.key === purpose)?.label?.replace(/^[^\s]+\s/, '') || purpose;
+      setBuildName(`${purposeLabel} ${formatPrice(finalBudget)}`);
     } catch (e: any) {
       setError(e.message || 'Không thể gợi ý cấu hình');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveBuild = async () => {
+    if (!token || !result) return;
+    if (!buildName.trim()) {
+      setSaveError('Vui lòng nhập tên cấu hình');
+      return;
+    }
+
+    setSaving(true);
+    setSaveError('');
+    setSaveSuccess(false);
+
+    try {
+      // Convert components to { category: productId } format
+      const components: Record<string, any> = {};
+      for (const [key, comp] of Object.entries(result.components)) {
+        components[key] = {
+          product_id: comp.product.id,
+          name: comp.product.name,
+          price: comp.product.base_price,
+          image_url: comp.product.image_url,
+        };
+      }
+
+      await api.saveBuild({
+        name: buildName.trim(),
+        components,
+        total_price: result.total_price,
+      }, token);
+
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 5000);
+    } catch (err: any) {
+      setSaveError(err.message || 'Không thể lưu cấu hình');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -151,12 +202,60 @@ export default function BuildPage() {
             alignItems: 'center',
             background: 'var(--color-bg-elevated)',
             padding: '20px',
+            marginBottom: '24px',
           }}>
             <span style={{ fontSize: '16px', fontWeight: 600 }}>Tổng chi phí</span>
             <span style={{ fontSize: '24px', fontWeight: 800, background: 'var(--gradient-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
               {formatPrice(result.total_price)}
             </span>
           </div>
+
+          {/* =================== SAVE BUILD =================== */}
+          {isLoggedIn ? (
+            <div className="card" style={{ padding: '20px' }}>
+              <h3 style={{ fontSize: '15px', fontWeight: 600, marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Save size={16} /> Lưu cấu hình
+              </h3>
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="Đặt tên cho cấu hình này..."
+                  value={buildName}
+                  onChange={(e) => setBuildName(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <button
+                  onClick={handleSaveBuild}
+                  disabled={saving || saveSuccess}
+                  className={`btn ${saveSuccess ? 'btn-secondary' : 'btn-primary'}`}
+                  style={{ whiteSpace: 'nowrap', minWidth: '140px' }}
+                >
+                  {saving ? (
+                    <><Loader2 size={16} className="animate-spin" /> Đang lưu...</>
+                  ) : saveSuccess ? (
+                    <><Check size={16} /> Đã lưu!</>
+                  ) : (
+                    <><Save size={16} /> Lưu cấu hình</>
+                  )}
+                </button>
+              </div>
+              {saveError && (
+                <p style={{ color: 'var(--color-danger)', fontSize: '13px', marginTop: '8px' }}>{saveError}</p>
+              )}
+              {saveSuccess && (
+                <p style={{ color: 'var(--color-success)', fontSize: '13px', marginTop: '8px' }}>
+                  ✅ Đã lưu thành công! Xem tại <Link href="/profile" style={{ color: 'var(--color-primary-hover)', textDecoration: 'underline' }}>trang cá nhân</Link>.
+                </p>
+              )}
+            </div>
+          ) : (
+            <div className="card" style={{ padding: '16px', background: 'rgba(99, 102, 241, 0.05)', borderColor: 'rgba(99, 102, 241, 0.2)', textAlign: 'center' }}>
+              <p style={{ fontSize: '14px', color: 'var(--color-text-secondary)' }}>
+                💾 <Link href="/auth/login" style={{ color: 'var(--color-primary-hover)', textDecoration: 'underline' }}>Đăng nhập</Link> để lưu cấu hình này.
+              </p>
+            </div>
+          )}
         </div>
       )}
     </div>

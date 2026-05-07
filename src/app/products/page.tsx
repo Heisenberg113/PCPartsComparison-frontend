@@ -198,19 +198,97 @@ function ProductsPageContent() {
           )}
 
           {/* Pagination */}
-          {meta.total_pages > 1 && (
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '32px' }}>
-              {Array.from({ length: meta.total_pages }, (_, i) => (
+          {meta.total_pages > 1 && (() => {
+            // Smart pagination: show first, last, current ± siblings, with ellipsis
+            const totalPages = meta.total_pages;
+            const siblings = 1;
+            const pages: (number | 'ellipsis-left' | 'ellipsis-right')[] = [];
+
+            const leftSibling = Math.max(page - siblings, 1);
+            const rightSibling = Math.min(page + siblings, totalPages);
+
+            const showLeftEllipsis = leftSibling > 2;
+            const showRightEllipsis = rightSibling < totalPages - 1;
+
+            // Always show page 1
+            pages.push(1);
+
+            // Left ellipsis
+            if (showLeftEllipsis) {
+              pages.push('ellipsis-left');
+            } else {
+              // Fill pages between 1 and leftSibling
+              for (let i = 2; i < leftSibling; i++) {
+                pages.push(i);
+              }
+            }
+
+            // Pages around current
+            for (let i = leftSibling; i <= rightSibling; i++) {
+              if (i !== 1 && i !== totalPages) {
+                pages.push(i);
+              }
+            }
+
+            // Right ellipsis
+            if (showRightEllipsis) {
+              pages.push('ellipsis-right');
+            } else {
+              for (let i = rightSibling + 1; i < totalPages; i++) {
+                pages.push(i);
+              }
+            }
+
+            // Always show last page
+            if (totalPages > 1) {
+              pages.push(totalPages);
+            }
+
+            return (
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px', marginTop: '32px', flexWrap: 'wrap' }}>
+                {/* Previous button */}
                 <button
-                  key={i}
-                  onClick={() => setPage(i + 1)}
-                  className={`btn btn-sm ${page === i + 1 ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setPage(Math.max(1, page - 1))}
+                  disabled={page === 1}
+                  className="btn btn-secondary btn-sm"
+                  style={{ opacity: page === 1 ? 0.4 : 1, minWidth: '36px' }}
                 >
-                  {i + 1}
+                  ‹
                 </button>
-              ))}
-            </div>
-          )}
+
+                {pages.map((p, idx) => {
+                  if (p === 'ellipsis-left' || p === 'ellipsis-right') {
+                    return (
+                      <span key={p} style={{ padding: '0 4px', color: 'var(--color-text-muted)', fontSize: '14px', userSelect: 'none' }}>
+                        …
+                      </span>
+                    );
+                  }
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => setPage(p)}
+                      className={`btn btn-sm ${page === p ? 'btn-primary' : 'btn-secondary'}`}
+                      style={{ minWidth: '36px' }}
+                    >
+                      {p}
+                    </button>
+                  );
+                })}
+
+                {/* Next button */}
+                <button
+                  onClick={() => setPage(Math.min(totalPages, page + 1))}
+                  disabled={page === totalPages}
+                  className="btn btn-secondary btn-sm"
+                  style={{ opacity: page === totalPages ? 0.4 : 1, minWidth: '36px' }}
+                >
+                  ›
+                </button>
+              </div>
+            );
+          })()}
+
         </div>
       </div>
 

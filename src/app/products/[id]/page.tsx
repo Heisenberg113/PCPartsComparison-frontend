@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Star, ExternalLink, ArrowLeft, ShoppingCart } from 'lucide-react';
+import { Star, ExternalLink, ArrowLeft, ShoppingCart, Send, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import { api, type Product, type PriceEntry, type PriceHistory, type Review as ReviewType } from '@/lib/api';
 import { formatPrice, formatDate, categoryLabels } from '@/lib/utils';
+import { useAuth } from '@/lib/providers';
 
 const SHOP_COLORS: Record<string, string> = {
   'Phong Vũ': '#6366f1',
@@ -17,12 +18,21 @@ const SHOP_COLORS: Record<string, string> = {
 export default function ProductDetailPage() {
   const params = useParams();
   const productId = Number(params.id);
+  const { user, token, isLoggedIn } = useAuth();
 
   const [product, setProduct] = useState<Product | null>(null);
   const [currentPrices, setCurrentPrices] = useState<PriceEntry[]>([]);
   const [priceHistory, setPriceHistory] = useState<PriceHistory | null>(null);
   const [reviews, setReviews] = useState<ReviewType[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Review form state
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewHover, setReviewHover] = useState(0);
+  const [reviewContent, setReviewContent] = useState('');
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewError, setReviewError] = useState('');
+  const [reviewSuccess, setReviewSuccess] = useState('');
 
   useEffect(() => {
     if (!productId) return;
@@ -42,6 +52,51 @@ export default function ProductDetailPage() {
       .catch(() => { })
       .finally(() => setLoading(false));
   }, [productId]);
+
+  const handleSubmitReview = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token || !product) return;
+
+    if (reviewContent.trim().length < 10) {
+      setReviewError('Nội dung đánh giá phải có ít nhất 10 ký tự');
+      return;
+    }
+
+    setReviewSubmitting(true);
+    setReviewError('');
+    setReviewSuccess('');
+
+    try {
+      const newReview = await api.createReview({
+        product_id: product.id,
+        rating: reviewRating,
+        content: reviewContent.trim(),
+      }, token);
+
+      // Add new review to the list with user info
+      setReviews((prev) => [{
+        ...newReview,
+        user: user ? { id: user.id, username: user.username } : null,
+      }, ...prev]);
+
+      setReviewContent('');
+      setReviewRating(5);
+      setReviewSuccess('Đánh giá của bạn đã được gửi thành công!');
+
+      // Update product rating display
+      setProduct((prev) => prev ? {
+        ...prev,
+        review_count: prev.review_count + 1,
+        avg_rating: ((prev.avg_rating * prev.review_count) + reviewRating) / (prev.review_count + 1),
+      } : prev);
+
+      setTimeout(() => setReviewSuccess(''), 3000);
+    } catch (err: any) {
+      setReviewError(err.message || 'Không thể gửi đánh giá');
+    } finally {
+      setReviewSubmitting(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -83,6 +138,18 @@ export default function ProductDetailPage() {
   }
 
   const specs = product.specs || {};
+
+  const HTML_KEYS = new Set([
+    'base_clock',
+    'boost_clock',
+    'memory_clock',
+    'tdp',
+    'power_connectors',
+    'slot_width',
+  ]);
+
+  // Check if user already reviewed
+  const userAlreadyReviewed = isLoggedIn && reviews.some((r) => r.user?.id === user?.id);
 
   return (
     <div className="container" style={{ padding: '32px 24px' }}>
@@ -174,7 +241,12 @@ export default function ProductDetailPage() {
               <span style={{ color: 'var(--color-text-secondary)', fontSize: '14px', textTransform: 'capitalize' }}>
                 {key.replace(/_/g, ' ')}
               </span>
-              <span style={{ fontWeight: 500, fontSize: '14px' }}>{String(value)}</span>
+              <span style={{ fontWeight: 500, fontSize: '14px' }}>
+                {HTML_KEYS.has(key)
+                  ? <span dangerouslySetInnerHTML={{ __html: String(value) }} />
+                  : String(value)
+                }
+              </span>
             </div>
           ))}
         </div>
@@ -201,6 +273,93 @@ export default function ProductDetailPage() {
               </LineChart>
             </ResponsiveContainer>
           </div>
+        </div>
+      )}
+
+      {/* =================== REVIEW FORM =================== */}
+      {isLoggedIn && !userAlreadyReviewed && (
+        <div className="card animate-fade-in" style={{ marginBottom: '24px' }}>
+          <h2 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '16px' }}>✍️ Viết đánh giá</h2>
+          <form onSubmit={handleSubmitReview}>
+            {/* Star Rating Picker */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '8px', display: 'block' }}>
+                Đánh giá của bạn
+              </label>
+              <div style={{ display: 'flex', gap: '4px', cursor: 'pointer' }}>
+                {[1, 2, 3, 4, 5].map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setReviewRating(s)}
+                    onMouseEnter={() => setReviewHover(s)}
+                    onMouseLeave={() => setReviewHover(0)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px', transition: 'transform 0.15s' }}
+                  >
+                    <Star
+                      size={28}
+                      fill={s <= (reviewHover || reviewRating) ? '#f59e0b' : 'none'}
+                      stroke={s <= (reviewHover || reviewRating) ? '#f59e0b' : '#4a4a5a'}
+                      style={{ transition: 'all 0.15s' }}
+                    />
+                  </button>
+                ))}
+                <span style={{ marginLeft: '12px', fontSize: '14px', color: 'var(--color-text-secondary)', alignSelf: 'center' }}>
+                  {reviewRating === 1 && '⭐ Rất tệ'}
+                  {reviewRating === 2 && '⭐⭐ Tệ'}
+                  {reviewRating === 3 && '⭐⭐⭐ Bình thường'}
+                  {reviewRating === 4 && '⭐⭐⭐⭐ Tốt'}
+                  {reviewRating === 5 && '⭐⭐⭐⭐⭐ Tuyệt vời'}
+                </span>
+              </div>
+            </div>
+
+            {/* Comment */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '8px', display: 'block' }}>
+                Nội dung đánh giá (tối thiểu 10 ký tự)
+              </label>
+              <textarea
+                className="input"
+                rows={4}
+                placeholder="Chia sẻ trải nghiệm của bạn về sản phẩm này..."
+                value={reviewContent}
+                onChange={(e) => setReviewContent(e.target.value)}
+                style={{ resize: 'vertical', minHeight: '100px' }}
+              />
+            </div>
+
+            {reviewError && (
+              <p style={{ color: 'var(--color-danger)', fontSize: '13px', marginBottom: '12px' }}>{reviewError}</p>
+            )}
+            {reviewSuccess && (
+              <p style={{ color: 'var(--color-success)', fontSize: '13px', marginBottom: '12px' }}>{reviewSuccess}</p>
+            )}
+
+            <button type="submit" disabled={reviewSubmitting} className="btn btn-primary" style={{ gap: '8px' }}>
+              {reviewSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+              {reviewSubmitting ? 'Đang gửi...' : 'Gửi đánh giá'}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* Already reviewed notice */}
+      {isLoggedIn && userAlreadyReviewed && (
+        <div className="card" style={{ marginBottom: '24px', padding: '16px', background: 'rgba(99, 102, 241, 0.05)', borderColor: 'rgba(99, 102, 241, 0.2)' }}>
+          <p style={{ fontSize: '14px', color: 'var(--color-text-secondary)', textAlign: 'center' }}>
+            ✅ Bạn đã đánh giá sản phẩm này. Xem và quản lý đánh giá tại{' '}
+            <Link href="/profile" style={{ color: 'var(--color-primary-hover)', textDecoration: 'underline' }}>trang cá nhân</Link>.
+          </p>
+        </div>
+      )}
+
+      {/* Not logged in notice */}
+      {!isLoggedIn && (
+        <div className="card" style={{ marginBottom: '24px', padding: '16px', background: 'rgba(99, 102, 241, 0.05)', borderColor: 'rgba(99, 102, 241, 0.2)' }}>
+          <p style={{ fontSize: '14px', color: 'var(--color-text-secondary)', textAlign: 'center' }}>
+            💬 <Link href="/auth/login" style={{ color: 'var(--color-primary-hover)', textDecoration: 'underline' }}>Đăng nhập</Link> để viết đánh giá cho sản phẩm này.
+          </p>
         </div>
       )}
 

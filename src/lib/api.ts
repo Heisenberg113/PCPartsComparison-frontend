@@ -71,9 +71,23 @@ export interface Review {
   user: { id: number; username: string } | null;
 }
 
+// Review as returned by GET /reviews/user — includes product relation
+export interface UserReview extends Review {
+  product: { id: number; name: string; category: string; base_price: number };
+}
+
 export interface ReviewsResponse {
   data: Review[];
   meta: { total: number; page: number; limit: number; total_pages: number };
+}
+
+export interface BuildConfig {
+  id: number;
+  name: string;
+  components: Record<string, any>;
+  total_price: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface BuildSuggestion {
@@ -129,6 +143,15 @@ export const api = {
   createReview: (data: { product_id: number; rating: number; content: string }, token: string) =>
     fetchAPI<Review>('/reviews', { method: 'POST', body: JSON.stringify(data), token }),
 
+  updateReview: (reviewId: number, data: { rating: number; content: string }, token: string) =>
+    fetchAPI<Review>(`/reviews/${reviewId}`, { method: 'PUT', body: JSON.stringify(data), token }),
+
+  deleteReview: (reviewId: number, token: string) =>
+    fetchAPI<{ message: string }>(`/reviews/${reviewId}`, { method: 'DELETE', token }),
+
+  getUserReviews: (token: string) =>
+    fetchAPI<UserReview[]>('/reviews/user', { token }),
+
   // Search
   search: (q: string) =>
     fetchAPI<{ data: Product[]; total: number }>(`/search?q=${encodeURIComponent(q)}`),
@@ -143,6 +166,18 @@ export const api = {
       body: JSON.stringify({ budget, purpose }),
     }),
 
+  saveBuild: (data: { name: string; components: Record<string, any>; total_price: number }, token: string) =>
+    fetchAPI<BuildConfig>('/builds', { method: 'POST', body: JSON.stringify(data), token }),
+
+  getUserBuilds: (token: string) =>
+    fetchAPI<BuildConfig[]>('/builds', { token }),
+
+  updateBuild: (buildId: number, data: { name?: string; components?: Record<string, any>; total_price?: number }, token: string) =>
+    fetchAPI<BuildConfig>(`/builds/${buildId}`, { method: 'PUT', body: JSON.stringify(data), token }),
+
+  deleteBuild: (buildId: number, token: string) =>
+    fetchAPI<{ message: string }>(`/builds/${buildId}`, { method: 'DELETE', token }),
+
   // Auth
   register: (data: { email: string; username: string; password: string }) =>
     fetchAPI<AuthResponse>('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
@@ -153,3 +188,4 @@ export const api = {
   getProfile: (token: string) =>
     fetchAPI<{ id: number; email: string; username: string; role: string }>('/auth/profile', { token }),
 };
+
