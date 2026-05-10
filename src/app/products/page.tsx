@@ -7,7 +7,7 @@ import { api, type Product, type ProductsResponse } from '@/lib/api';
 import { categoryLabels } from '@/lib/utils';
 import ProductCard from '@/components/ProductCard';
 
-const CATEGORIES = ['cpu', 'gpu', 'ram', 'ssd', 'mainboard', 'psu', 'case', 'cooler', 'monitor'];
+const CATEGORIES = ['cpu', 'gpu', 'ram', 'harddrive', 'mainboard', 'psu', 'case', 'cooler', 'monitor'];
 
 export default function ProductsPageWrapper() {
   return (

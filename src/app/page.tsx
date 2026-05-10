@@ -11,7 +11,7 @@ const HERO_CATEGORIES = [
   { key: 'cpu', label: 'CPU', icon: <Cpu size={28} />, color: '#6366f1' },
   { key: 'gpu', label: 'VGA', icon: <Monitor size={28} />, color: '#06b6d4' },
   { key: 'ram', label: 'RAM', icon: <MemoryStick size={28} />, color: '#8b5cf6' },
-  { key: 'ssd', label: 'SSD', icon: <HardDrive size={28} />, color: '#10b981' },
+  { key: 'harddrive', label: 'HARDDRIVE', icon: <HardDrive size={28} />, color: '#10b981' },
   { key: 'mainboard', label: 'Mainboard', icon: <Zap size={28} />, color: '#f59e0b' },
 ];
 
@@ -90,7 +90,7 @@ export default function HomePage() {
           }}>
             <input
               type="text"
-              placeholder="Tìm kiếm CPU, GPU, RAM, SSD..."
+              placeholder="Tìm kiếm CPU, GPU, RAM, HARDDRIVE..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="input"

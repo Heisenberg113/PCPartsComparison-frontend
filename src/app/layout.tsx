@@ -17,7 +17,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "PCParts - So sánh linh kiện máy tính",
   description: "Tra cứu, so sánh thông số kỹ thuật và giá linh kiện phần cứng máy tính từ các shop Việt Nam.",
-  keywords: "linh kiện, máy tính, CPU, GPU, RAM, SSD, so sánh, giá, Phong Vũ, GearVN",
+  keywords: "linh kiện, máy tính, CPU, GPU, RAM, HARDDRIVE, so sánh, giá, Phong Vũ, GearVN",
 };
 
 export default function RootLayout({
