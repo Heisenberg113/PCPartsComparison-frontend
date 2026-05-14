@@ -88,18 +88,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 // =================== Compare Context ===================
 interface CompareContextType {
   compareIds: number[];
-  addToCompare: (id: number) => void;
+  compareCategory: string | null;
+  addToCompare: (id: number, category: string) => void;
   removeFromCompare: (id: number) => void;
   clearCompare: () => void;
   isInCompare: (id: number) => boolean;
+  canAddToCompare: (category: string) => boolean;
 }
 
 const CompareContext = createContext<CompareContextType>({
   compareIds: [],
+  compareCategory: null,
   addToCompare: () => {},
   removeFromCompare: () => {},
   clearCompare: () => {},
   isInCompare: () => false,
+  canAddToCompare: () => true,
 });
 
 export function useCompare() {
@@ -108,20 +112,31 @@ export function useCompare() {
 
 export function CompareProvider({ children }: { children: ReactNode }) {
   const [compareIds, setCompareIds] = useState<number[]>([]);
+  const [compareCategory, setCompareCategory] = useState<string | null>(null);
 
-  const addToCompare = (id: number) => {
-    setCompareIds((prev) => (prev.length < 4 && !prev.includes(id) ? [...prev, id] : prev));
+  const addToCompare = (id: number, category: string) => {
+    setCompareIds((prev) => {
+      if (prev.length >= 4 || prev.includes(id)) return prev;
+      if (prev.length === 0) setCompareCategory(category);
+      return [...prev, id];
+    });
   };
 
   const removeFromCompare = (id: number) => {
-    setCompareIds((prev) => prev.filter((i) => i !== id));
+    setCompareIds((prev) => {
+      const next = prev.filter((i) => i !== id);
+      if (next.length === 0) setCompareCategory(null);
+      return next;
+    });
   };
 
-  const clearCompare = () => setCompareIds([]);
+  const clearCompare = () => { setCompareIds([]); setCompareCategory(null); };
   const isInCompare = (id: number) => compareIds.includes(id);
+  const canAddToCompare = (category: string) =>
+    compareIds.length === 0 || category === compareCategory;
 
   return (
-    <CompareContext.Provider value={{ compareIds, addToCompare, removeFromCompare, clearCompare, isInCompare }}>
+    <CompareContext.Provider value={{ compareIds, compareCategory, addToCompare, removeFromCompare, clearCompare, isInCompare, canAddToCompare }}>
       {children}
     </CompareContext.Provider>
   );

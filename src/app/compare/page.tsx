@@ -119,11 +119,25 @@ export default function ComparePage() {
                   <td style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)', color: 'var(--color-text-muted)', fontSize: '13px', textTransform: 'capitalize' }}>
                     {key.replace(/_/g, ' ')}
                   </td>
-                  {products.map((p) => (
-                    <td key={p.id} style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)', textAlign: 'center', fontSize: '14px' }}>
-                      {p.specs?.[key] !== undefined ? String(p.specs[key]) : '—'}
-                    </td>
-                  ))}
+                  {products.map((p) => {
+                    const v = p.specs?.[key];
+                    let parts: string[];
+                    if (v === undefined || v === null) {
+                      parts = ['—'];
+                    } else if (Array.isArray(v)) {
+                      parts = v.map(String);
+                    } else {
+                      const s = String(v);
+                      parts = s.includes(',') ? s.split(',').map((x) => x.trim()) : [s];
+                    }
+                    return (
+                      <td key={p.id} style={{ padding: '12px 16px', borderBottom: '1px solid var(--color-border)', textAlign: 'center', fontSize: '14px' }}>
+                        {parts.map((part, i) => (
+                          <span key={i}>{part}{i < parts.length - 1 && <br />}</span>
+                        ))}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>

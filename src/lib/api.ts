@@ -39,6 +39,7 @@ export interface Product {
   image_url: string;
   description: string;
   base_price: number;
+  min_price: number | null;
   avg_rating: number;
   review_count: number;
   created_at: string;

@@ -12,7 +12,10 @@ import { useAuth } from '@/lib/providers';
 const SHOP_COLORS: Record<string, string> = {
   'Phong Vũ': '#6366f1',
   'GearVN': '#06b6d4',
-  'An Phát': '#10b981',
+  'An Phát Computer': '#10b981',
+  'TNC Store': '#f59e0b',
+  'Tinhocngoisao': '#8b5cf6',
+  'Hotgear': '#ef4444',
 };
 
 export default function ProductDetailPage() {
@@ -189,9 +192,22 @@ export default function ProductDetailPage() {
 
           {/* Price */}
           <div>
-            <span style={{ fontSize: '32px', fontWeight: 800, background: 'var(--gradient-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-              {formatPrice(product.base_price)}
-            </span>
+            {currentPrices.length > 0 ? (
+              <>
+                <span style={{ fontSize: '32px', fontWeight: 800, background: 'var(--gradient-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                  {formatPrice(currentPrices[0].price)}
+                </span>
+                <span style={{ fontSize: '13px', color: 'var(--color-text-muted)', marginLeft: '8px' }}>
+                  tại {currentPrices[0].shop_name}
+                </span>
+              </>
+            ) : product.base_price > 0 ? (
+              <span style={{ fontSize: '32px', fontWeight: 800, background: 'var(--gradient-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                {formatPrice(product.base_price)}
+              </span>
+            ) : (
+              <span style={{ fontSize: '18px', color: 'var(--color-text-muted)' }}>Chưa có giá</span>
+            )}
           </div>
 
           {/* Description */}
@@ -229,26 +245,38 @@ export default function ProductDetailPage() {
       {/* =================== SPECS =================== */}
       <div className="card animate-fade-in" style={{ marginBottom: '24px' }}>
         <h2 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '16px' }}>📋 Thông số kỹ thuật</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '0' }}>
-          {Object.entries(specs).map(([key, value], i) => (
-            <div key={key} style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              padding: '12px 16px',
-              borderBottom: '1px solid var(--color-border)',
-              background: i % 2 === 0 ? 'transparent' : 'var(--color-bg-secondary)',
-            }}>
-              <span style={{ color: 'var(--color-text-secondary)', fontSize: '14px', textTransform: 'capitalize' }}>
-                {key.replace(/_/g, ' ')}
-              </span>
-              <span style={{ fontWeight: 500, fontSize: '14px' }}>
-                {HTML_KEYS.has(key)
-                  ? <span dangerouslySetInnerHTML={{ __html: String(value) }} />
-                  : String(value)
-                }
-              </span>
-            </div>
-          ))}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0' }}>
+          {Object.entries(specs).map(([key, value], i) => {
+            const parts: string[] = Array.isArray(value)
+              ? value.map(String)
+              : (() => {
+                  const s = String(value);
+                  return s.includes(',') ? s.split(',').map((x) => x.trim()) : [s];
+                })();
+            return (
+              <div key={key} style={{
+                display: 'grid',
+                gridTemplateColumns: '220px 1fr',
+                alignItems: 'flex-start',
+                gap: '8px',
+                padding: '12px 16px',
+                borderBottom: '1px solid var(--color-border)',
+                background: i % 2 === 0 ? 'transparent' : 'var(--color-bg-secondary)',
+              }}>
+                <span style={{ color: 'var(--color-text-secondary)', fontSize: '14px' }}>
+                  {key.replace(/_/g, ' ')}
+                </span>
+                <span style={{ fontWeight: 500, fontSize: '14px' }}>
+                  {HTML_KEYS.has(key)
+                    ? <span dangerouslySetInnerHTML={{ __html: String(value) }} />
+                    : parts.map((part, j) => (
+                        <span key={j}>{part}{j < parts.length - 1 && <br />}</span>
+                      ))
+                  }
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
 

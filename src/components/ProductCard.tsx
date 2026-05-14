@@ -7,8 +7,9 @@ import { useCompare } from '@/lib/providers';
 import type { Product } from '@/lib/api';
 
 export default function ProductCard({ product }: { product: Product }) {
-  const { addToCompare, removeFromCompare, isInCompare } = useCompare();
+  const { addToCompare, removeFromCompare, isInCompare, canAddToCompare } = useCompare();
   const inCompare = isInCompare(product.id);
+  const addable = inCompare || canAddToCompare(product.category);
 
   return (
     <Link
@@ -76,25 +77,36 @@ export default function ProductCard({ product }: { product: Product }) {
 
       {/* Price & Compare */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto' }}>
-        <span style={{
-          fontSize: '18px',
-          fontWeight: 700,
-          background: 'var(--gradient-primary)',
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent',
-        }}>
-          {formatPrice(product.base_price)}
-        </span>
+        {(() => {
+          const displayPrice = product.min_price ?? product.base_price;
+          return displayPrice > 0 ? (
+            <span style={{
+              fontSize: '18px',
+              fontWeight: 700,
+              background: 'var(--gradient-primary)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+            }}>
+              {formatPrice(displayPrice)}
+            </span>
+          ) : (
+            <span style={{ fontSize: '13px', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+              Chưa có giá
+            </span>
+          );
+        })()}
 
         <button
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            inCompare ? removeFromCompare(product.id) : addToCompare(product.id);
+            if (inCompare) removeFromCompare(product.id);
+            else if (addable) addToCompare(product.id, product.category);
           }}
+          disabled={!addable}
           className={`btn btn-sm ${inCompare ? 'btn-primary' : 'btn-secondary'}`}
-          style={{ padding: '4px 10px', fontSize: '12px' }}
-          title={inCompare ? 'Bỏ so sánh' : 'Thêm so sánh'}
+          style={{ padding: '4px 10px', fontSize: '12px', opacity: addable ? 1 : 0.35, cursor: addable ? 'pointer' : 'not-allowed' }}
+          title={inCompare ? 'Bỏ so sánh' : addable ? 'Thêm so sánh' : 'Chỉ so sánh sản phẩm cùng danh mục'}
         >
           <GitCompareArrows size={14} />
         </button>
