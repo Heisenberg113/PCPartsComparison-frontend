@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import { Star, ExternalLink, ArrowLeft, ShoppingCart, Send, Loader2 } from 'lucide-react';
 import Link from 'next/link';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
-import { api, type Product, type PriceEntry, type PriceHistory, type Review as ReviewType } from '@/lib/api';
+import { api, combinedRating, type Product, type PriceEntry, type PriceHistory, type Review as ReviewType } from '@/lib/api';
 import { formatPrice, formatDate, categoryLabels } from '@/lib/utils';
 import { useAuth } from '@/lib/providers';
 
@@ -179,16 +179,39 @@ export default function ProductDetailPage() {
           </div>
 
           {/* Rating */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div className="stars">
-              {[1, 2, 3, 4, 5].map((s) => (
-                <Star key={s} size={18} fill={s <= Math.round(product.avg_rating) ? '#f59e0b' : 'none'} stroke={s <= Math.round(product.avg_rating) ? '#f59e0b' : '#4a4a5a'} />
-              ))}
-            </div>
-            <span style={{ fontSize: '14px', color: 'var(--color-text-secondary)' }}>
-              {product.avg_rating.toFixed(1)} ({product.review_count} đánh giá)
-            </span>
-          </div>
+          {(() => {
+            const { avg: ratingAvg, count: ratingCount } = combinedRating(product);
+            const hasInternal = product.review_count > 0;
+            const hasExternal = product.ext_rating != null && product.ext_review_count != null && product.ext_review_count > 0;
+            const hasBoth = hasInternal && hasExternal;
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div className="stars">
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <Star key={s} size={18} fill={s <= Math.round(ratingAvg) ? '#f59e0b' : 'none'} stroke={s <= Math.round(ratingAvg) ? '#f59e0b' : '#4a4a5a'} />
+                    ))}
+                  </div>
+                  <span style={{ fontSize: '14px', color: 'var(--color-text-secondary)' }}>
+                    {ratingCount > 0
+                      ? `${ratingAvg.toFixed(1)} (${ratingCount} đánh giá)`
+                      : 'Chưa có đánh giá'}
+                  </span>
+                </div>
+                {hasBoth && (
+                  <div style={{ display: 'flex', gap: '12px', fontSize: '12px', color: 'var(--color-text-muted)' }}>
+                    <span>PCPartPicker: {Number(product.ext_rating!).toFixed(1)} ★ ({product.ext_review_count})</span>
+                    <span>Người dùng: {Number(product.avg_rating).toFixed(1)} ★ ({product.review_count})</span>
+                  </div>
+                )}
+                {!hasInternal && hasExternal && (
+                  <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>
+                    Nguồn: PCPartPicker
+                  </span>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Price */}
           <div>

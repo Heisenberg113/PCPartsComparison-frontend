@@ -5,11 +5,13 @@ import { Star, GitCompareArrows } from 'lucide-react';
 import { formatPrice } from '@/lib/utils';
 import { useCompare } from '@/lib/providers';
 import type { Product } from '@/lib/api';
+import { combinedRating } from '@/lib/api';
 
 export default function ProductCard({ product }: { product: Product }) {
   const { addToCompare, removeFromCompare, isInCompare, canAddToCompare } = useCompare();
   const inCompare = isInCompare(product.id);
   const addable = inCompare || canAddToCompare(product.category);
+  const { avg: ratingAvg, count: ratingCount } = combinedRating(product);
 
   return (
     <Link
@@ -67,11 +69,11 @@ export default function ProductCard({ product }: { product: Product }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
         <div className="stars">
           {[1, 2, 3, 4, 5].map((s) => (
-            <Star key={s} size={13} fill={s <= Math.round(product.avg_rating) ? '#f59e0b' : 'none'} stroke={s <= Math.round(product.avg_rating) ? '#f59e0b' : '#4a4a5a'} />
+            <Star key={s} size={13} fill={s <= Math.round(ratingAvg) ? '#f59e0b' : 'none'} stroke={s <= Math.round(ratingAvg) ? '#f59e0b' : '#4a4a5a'} />
           ))}
         </div>
         <span style={{ fontSize: '12px', color: 'var(--color-text-muted)' }}>
-          ({product.review_count})
+          {ratingCount > 0 ? `${ratingAvg.toFixed(1)} (${ratingCount})` : 'Chưa có đánh giá'}
         </span>
       </div>
 

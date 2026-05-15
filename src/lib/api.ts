@@ -42,7 +42,28 @@ export interface Product {
   min_price: number | null;
   avg_rating: number;
   review_count: number;
+  ext_rating: number | null;
+  ext_review_count: number | null;
   created_at: string;
+}
+
+export function combinedRating(product: Product): { avg: number; count: number } {
+  const internalAvg = Number(product.avg_rating) || 0;
+  const internalCount = Number(product.review_count) || 0;
+  const externalAvg = product.ext_rating != null ? Number(product.ext_rating) : null;
+  const externalCount = product.ext_review_count != null ? Number(product.ext_review_count) : null;
+
+  const hasInternal = internalCount > 0;
+  const hasExternal = externalAvg != null && externalCount != null && externalCount > 0;
+
+  if (hasInternal && hasExternal) {
+    const totalCount = internalCount + externalCount!;
+    const weightedAvg = (internalAvg * internalCount + externalAvg! * externalCount!) / totalCount;
+    return { avg: weightedAvg, count: totalCount };
+  }
+  if (hasInternal) return { avg: internalAvg, count: internalCount };
+  if (hasExternal) return { avg: externalAvg!, count: externalCount! };
+  return { avg: 0, count: 0 };
 }
 
 export interface ProductsResponse {
