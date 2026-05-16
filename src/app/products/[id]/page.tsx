@@ -6,7 +6,7 @@ import { Star, ExternalLink, ArrowLeft, ShoppingCart, Send, Loader2 } from 'luci
 import Link from 'next/link';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import { api, combinedRating, type Product, type PriceEntry, type PriceHistory, type Review as ReviewType } from '@/lib/api';
-import { formatPrice, formatDate, categoryLabels } from '@/lib/utils';
+import { formatPrice, formatDate, categoryLabels, translateSpec } from '@/lib/utils';
 import { useAuth } from '@/lib/providers';
 
 const SHOP_COLORS: Record<string, string> = {
@@ -287,7 +287,7 @@ export default function ProductDetailPage() {
                 background: i % 2 === 0 ? 'transparent' : 'var(--color-bg-secondary)',
               }}>
                 <span style={{ color: 'var(--color-text-secondary)', fontSize: '14px' }}>
-                  {key.replace(/_/g, ' ')}
+                  {translateSpec(key)}
                 </span>
                 <span style={{ fontWeight: 500, fontSize: '14px' }}>
                   {HTML_KEYS.has(key)

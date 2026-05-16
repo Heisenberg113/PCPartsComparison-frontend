@@ -130,8 +130,8 @@ export interface AuthResponse {
 
 export const api = {
   // Products
-  getProducts: (params?: string) =>
-    fetchAPI<ProductsResponse>(`/products${params ? `?${params}` : ''}`),
+  getProducts: (params?: string, signal?: AbortSignal) =>
+    fetchAPI<ProductsResponse>(`/products${params ? `?${params}` : ''}`, { signal }),
 
   getProduct: (id: number) =>
     fetchAPI<Product>(`/products/${id}`),

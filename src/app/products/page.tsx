@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Filter, X } from 'lucide-react';
 import { api, type Product } from '@/lib/api';
@@ -171,6 +171,27 @@ function ProductsPageContent() {
   // Spec filters (reset when category changes)
   const [specFilters, setSpecFilters] = useState<SpecFilters>({});
 
+  // Debounced values — search and specFilters are debounced 400ms so slider drags don't spam API
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  const [debouncedSpecFilters, setDebouncedSpecFilters] = useState<SpecFilters>(specFilters);
+  const [refreshing, setRefreshing] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const hasLoadedRef = useRef(false);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const specTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => setDebouncedSearch(search), 400);
+    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
+  }, [search]);
+
+  useEffect(() => {
+    if (specTimerRef.current) clearTimeout(specTimerRef.current);
+    specTimerRef.current = setTimeout(() => setDebouncedSpecFilters(specFilters), 400);
+    return () => { if (specTimerRef.current) clearTimeout(specTimerRef.current); };
+  }, [specFilters]);
+
   // Load brands when category changes
   useEffect(() => {
     api.getBrands(category || undefined).then((res) => {
@@ -178,30 +199,46 @@ function ProductsPageContent() {
     }).catch(() => {});
   }, [category]);
 
-  // Load products
+  // Load products — uses debounced search/specFilters so slider drags don't clear the grid
   useEffect(() => {
-    setLoading(true);
+    if (abortRef.current) abortRef.current.abort();
+    abortRef.current = new AbortController();
+    const { signal } = abortRef.current;
+
+    if (!hasLoadedRef.current) setLoading(true);
+    setRefreshing(true);
+
     const params = new URLSearchParams();
     if (category) params.set('category', category);
     if (brand) params.set('brand', brand);
-    if (search) params.set('search', search);
+    if (debouncedSearch) params.set('search', debouncedSearch);
     if (minPrice) params.set('min_price', minPrice);
     if (maxPrice) params.set('max_price', maxPrice);
-    if (Object.keys(specFilters).length > 0) params.set('specs_filter', JSON.stringify(specFilters));
+    if (Object.keys(debouncedSpecFilters).length > 0) params.set('specs_filter', JSON.stringify(debouncedSpecFilters));
     params.set('sort_by', sortBy);
     params.set('sort_order', sortOrder);
     params.set('page', String(page));
     params.set('limit', '20');
 
-    api.getProducts(params.toString())
-      .then((res) => { setProducts(res.data); setMeta(res.meta); })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [category, brand, search, minPrice, maxPrice, specFilters, sortBy, sortOrder, page]);
+    api.getProducts(params.toString(), signal)
+      .then((res) => {
+        hasLoadedRef.current = true;
+        setProducts(res.data);
+        setMeta(res.meta);
+        setLoading(false);
+        setRefreshing(false);
+      })
+      .catch((err) => {
+        if (err?.name !== 'AbortError') {
+          setLoading(false);
+          setRefreshing(false);
+        }
+      });
+  }, [category, brand, debouncedSearch, minPrice, maxPrice, debouncedSpecFilters, sortBy, sortOrder, page]);
 
   const clearFilters = () => {
-    setCategory(''); setBrand(''); setSearch('');
-    setMinPrice(''); setMaxPrice(''); setSpecFilters({}); setPage(1);
+    setCategory(''); setBrand(''); setSearch(''); setDebouncedSearch('');
+    setMinPrice(''); setMaxPrice(''); setSpecFilters({}); setDebouncedSpecFilters({}); setPage(1);
   };
 
   const hasActiveFilters = !!(category || brand || search || minPrice || maxPrice || Object.keys(specFilters).length > 0);
@@ -269,7 +306,7 @@ function ProductsPageContent() {
             <div style={{ marginBottom: '16px' }}>
               <label style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '6px', display: 'block' }}>Loại linh kiện</label>
               <select className="input" value={category} onChange={(e) => {
-                setCategory(e.target.value); setBrand(''); setSpecFilters({}); setPage(1);
+                setCategory(e.target.value); setBrand(''); setSpecFilters({}); setDebouncedSpecFilters({}); setPage(1);
               }}>
                 <option value="">Tất cả</option>
                 {CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabels[c] || c}</option>)}
@@ -375,7 +412,7 @@ function ProductsPageContent() {
           {/* Results header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
             <p style={{ color: 'var(--color-text-secondary)', fontSize: '14px' }}>
-              {loading ? 'Đang tải...' : `Hiển thị ${products.length} / ${meta.total} sản phẩm`}
+              {loading ? 'Đang tải...' : refreshing ? 'Đang lọc...' : `Hiển thị ${products.length} / ${meta.total} sản phẩm`}
             </p>
           </div>
 
@@ -388,7 +425,9 @@ function ProductsPageContent() {
               <p>Không tìm thấy sản phẩm nào</p>
             </div>
           ) : (
-            <div className="product-grid">{products.map((p) => <ProductCard key={p.id} product={p} />)}</div>
+            <div className="product-grid" style={refreshing ? { opacity: 0.6, transition: 'opacity 0.15s', pointerEvents: 'none' } : undefined}>
+              {products.map((p) => <ProductCard key={p.id} product={p} />)}
+            </div>
           )}
 
           {/* Pagination */}
