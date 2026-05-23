@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Search, ArrowRight, Cpu, Monitor, HardDrive, MemoryStick, Zap } from 'lucide-react';
+import { Search, ArrowRight, Cpu, Monitor, HardDrive, MemoryStick, Zap, Wind } from 'lucide-react';
 import { api, type Product } from '@/lib/api';
 import { formatPrice, categoryLabels, categoryIcons } from '@/lib/utils';
 import ProductCard from '@/components/ProductCard';
@@ -13,6 +13,7 @@ const HERO_CATEGORIES = [
   { key: 'ram', label: 'RAM', icon: <MemoryStick size={28} />, color: '#8b5cf6' },
   { key: 'harddrive', label: 'HARDDRIVE', icon: <HardDrive size={28} />, color: '#10b981' },
   { key: 'mainboard', label: 'Mainboard', icon: <Zap size={28} />, color: '#f59e0b' },
+  { key: 'cooler', label: 'Tản nhiệt', icon: <Wind size={28} />, color: '#0ea5e9' },
 ];
 
 export default function HomePage() {

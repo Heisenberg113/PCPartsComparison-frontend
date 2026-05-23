@@ -164,7 +164,7 @@ function ProductsPageContent() {
   const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
   const [sortBy, setSortBy] = useState('created_at');
-  const [sortOrder, setSortOrder] = useState<'ASC' | 'DESC'>('DESC');
+  const [sortOrder, setSortOrder] = useState<'ASC' | 'DESC'>('ASC');
   const [page, setPage] = useState(1);
   const [showFilters, setShowFilters] = useState(false);
 
@@ -340,7 +340,7 @@ function ProductsPageContent() {
                 const [sb, so] = e.target.value.split('-');
                 setSortBy(sb); setSortOrder(so as 'ASC' | 'DESC'); setPage(1);
               }}>
-                <option value="created_at-DESC">Mới nhất</option>
+                <option value="created_at-ASC">Mới nhất</option>
                 <option value="base_price-ASC">Giá tăng dần</option>
                 <option value="base_price-DESC">Giá giảm dần</option>
                 <option value="avg_rating-DESC">Đánh giá cao nhất</option>
