@@ -35,6 +35,7 @@ interface AuthContextType {
   login: (token: string, refreshToken: string, user: AuthUser) => void;
   logout: () => void;
   isLoggedIn: boolean;
+  isHydrated: boolean;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -43,6 +44,7 @@ const AuthContext = createContext<AuthContextType>({
   login: () => {},
   logout: () => {},
   isLoggedIn: false,
+  isHydrated: false,
 });
 
 export function useAuth() {
@@ -52,6 +54,7 @@ export function useAuth() {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
     const savedToken = localStorage.getItem('access_token');
@@ -60,6 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setToken(savedToken);
       setUser(JSON.parse(savedUser));
     }
+    setIsHydrated(true);
   }, []);
 
   const login = (accessToken: string, refreshToken: string, userData: AuthUser) => {
@@ -79,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, isLoggedIn: !!token }}>
+    <AuthContext.Provider value={{ user, token, login, logout, isLoggedIn: !!token, isHydrated }}>
       {children}
     </AuthContext.Provider>
   );
@@ -113,6 +117,28 @@ export function useCompare() {
 export function CompareProvider({ children }: { children: ReactNode }) {
   const [compareIds, setCompareIds] = useState<number[]>([]);
   const [compareCategory, setCompareCategory] = useState<string | null>(null);
+
+  // Load từ localStorage sau khi mount (tránh hydration mismatch)
+  useEffect(() => {
+    try {
+      const savedIds = localStorage.getItem('compare_ids');
+      const savedCategory = localStorage.getItem('compare_category');
+      if (savedIds) {
+        const ids = JSON.parse(savedIds) as number[];
+        if (Array.isArray(ids) && ids.length > 0) {
+          setCompareIds(ids);
+          setCompareCategory(savedCategory);
+        }
+      }
+    } catch {}
+  }, []);
+
+  // Sync sang localStorage mỗi khi thay đổi
+  useEffect(() => {
+    localStorage.setItem('compare_ids', JSON.stringify(compareIds));
+    if (compareCategory) localStorage.setItem('compare_category', compareCategory);
+    else localStorage.removeItem('compare_category');
+  }, [compareIds, compareCategory]);
 
   const addToCompare = (id: number, category: string) => {
     setCompareIds((prev) => {

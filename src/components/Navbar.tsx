@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
-import { Search, Menu, X, Cpu, BarChart3, Wrench, User, LogOut } from 'lucide-react';
+import { Search, Menu, X, Cpu, BarChart3, Wrench, User, LogOut, Trophy } from 'lucide-react';
 import { useAuth } from '@/lib/providers';
 
 export default function Navbar() {
@@ -16,6 +16,7 @@ export default function Navbar() {
     { href: '/products', label: 'Linh kiện', icon: <Cpu size={16} /> },
     { href: '/compare', label: 'So sánh', icon: <BarChart3 size={16} /> },
     { href: '/build', label: 'Build PC', icon: <Wrench size={16} /> },
+    { href: '/benchmark', label: 'Benchmark', icon: <Trophy size={16} /> },
   ];
 
   const handleSearch = (e: React.FormEvent) => {
@@ -86,8 +87,8 @@ export default function Navbar() {
                 borderRadius: 'var(--radius-md)',
                 fontSize: '14px',
                 fontWeight: 500,
-                color: pathname === link.href ? 'var(--color-primary-hover)' : 'var(--color-text-secondary)',
-                background: pathname === link.href ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
+                color: pathname.startsWith(link.href) ? 'var(--color-primary-hover)' : 'var(--color-text-secondary)',
+                background: pathname.startsWith(link.href) ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
                 textDecoration: 'none',
                 transition: 'all 0.2s',
               }}
@@ -102,6 +103,11 @@ export default function Navbar() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }} className="hidden-mobile">
           {isLoggedIn ? (
             <>
+              {user?.role === 'admin' && (
+                <Link href="/admin" className="btn btn-ghost btn-sm" style={{ textDecoration: 'none', color: 'var(--color-primary)' }}>
+                  Admin
+                </Link>
+              )}
               <Link href="/profile" className="btn btn-ghost btn-sm" style={{ textDecoration: 'none' }}>
                 <User size={16} />
                 {user?.username}

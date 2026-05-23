@@ -265,6 +265,48 @@ export default function ProductDetailPage() {
         </div>
       </div>
 
+      {/* =================== BENCHMARK =================== */}
+      {product.benchmark_score != null && (
+        <div className="card animate-fade-in" style={{ marginBottom: '24px', padding: '20px 24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+            <h2 style={{ fontSize: '18px', fontWeight: 700 }}>
+              🏆 Điểm Benchmark PassMark
+            </h2>
+            <Link
+              href={`/benchmark/${product.category}`}
+              style={{ fontSize: '12px', color: 'var(--color-primary)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}
+            >
+              Bảng xếp hạng <ExternalLink size={12} />
+            </Link>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
+            <span style={{
+              fontSize: '44px', fontWeight: 800, flexShrink: 0,
+              background: product.category === 'cpu' ? 'var(--gradient-primary)' : 'linear-gradient(135deg,#06b6d4,#10b981)',
+              WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+            }}>
+              {Math.round(product.benchmark_score).toLocaleString('vi-VN')}
+            </span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: '13px', fontWeight: 600, marginBottom: '6px' }}>
+                {product.category === 'cpu' ? 'CPU Mark' : 'GPU Mark'}
+              </div>
+              <div style={{ height: '8px', background: 'var(--color-bg-secondary)', borderRadius: '4px', overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%',
+                  width: `${Math.min((product.benchmark_score / (product.category === 'cpu' ? 70000 : 30000)) * 100, 100)}%`,
+                  background: product.category === 'cpu' ? 'var(--gradient-primary)' : 'linear-gradient(to right,#06b6d4,#10b981)',
+                  borderRadius: '4px', transition: 'width 0.8s ease',
+                }} />
+              </div>
+              <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '5px' }}>
+                Nguồn: PassMark Software — passmark.com
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* =================== SPECS =================== */}
       <div className="card animate-fade-in" style={{ marginBottom: '24px' }}>
         <h2 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '16px' }}>📋 Thông số kỹ thuật</h2>

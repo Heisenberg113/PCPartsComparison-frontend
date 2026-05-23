@@ -129,7 +129,6 @@ const SPEC_TRANSLATIONS: Record<string, string> = {
 
   // Mainboard
   'Socket / CPU': 'Socket CPU',
-  'Chipset': 'Chipset',
   'Memory Max': 'RAM tối đa',
   'Memory Slots': 'Khe RAM',
   'Memory Speed': 'Tốc độ RAM',

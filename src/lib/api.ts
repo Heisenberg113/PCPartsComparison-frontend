@@ -44,6 +44,7 @@ export interface Product {
   review_count: number;
   ext_rating: number | null;
   ext_review_count: number | null;
+  benchmark_score: number | null;
   created_at: string;
 }
 
@@ -112,18 +113,82 @@ export interface BuildConfig {
   updated_at: string;
 }
 
+export interface BuildComponent {
+  product: Product;
+  budget_allocated: number;
+  over_budget?: boolean;
+}
+
 export interface BuildSuggestion {
   purpose: string;
   budget: number;
+  label: string;
   total_price: number;
   within_budget: boolean;
-  components: Record<string, { product: Product; budget_allocated: number; over_budget?: boolean }>;
+  compatibility_warnings?: string[];
+  budget_ratios?: Record<string, number>;
+  ratio_explanation?: {
+    label: string;
+    description: string;
+    components: Record<string, string>;
+  };
+  components: Record<string, BuildComponent>;
+  alternatives?: (Omit<BuildSuggestion, 'alternatives' | 'ratio_explanation'> & { alt_description: string })[];
+}
+
+export interface BudgetRatiosResponse {
+  presets: Record<string, Record<string, number>>;
+  alternatives: Record<string, { ratios: Record<string, number>; label: string; description: string }[]>;
+  explanations: Record<string, { label: string; description: string; components: Record<string, string> }>;
 }
 
 export interface AuthResponse {
   access_token: string;
   refresh_token: string;
   user: { id: number; email: string; username: string; role: string };
+}
+
+// =================== Admin Types ===================
+
+export interface AdminStats {
+  totals: { products: number; users: number; reviews: number; prices: number };
+  categoryStats: { category: string; count: string }[];
+  recentProducts: Pick<Product, 'id' | 'name' | 'category' | 'brand' | 'created_at'>[];
+  recentReviews: {
+    id: number;
+    rating: number;
+    content: string;
+    created_at: string;
+    user: { id: number; username: string } | null;
+    product: { id: number; name: string } | null;
+  }[];
+}
+
+export interface AdminUser {
+  id: number;
+  email: string;
+  username: string;
+  role: string;
+  created_at: string;
+}
+
+export interface AdminReview {
+  id: number;
+  rating: number;
+  content: string;
+  created_at: string;
+  user: { id: number; username: string } | null;
+  product: { id: number; name: string } | null;
+}
+
+export interface AdminUsersResponse {
+  data: AdminUser[];
+  meta: { total: number; page: number; limit: number; total_pages: number };
+}
+
+export interface AdminReviewsResponse {
+  data: AdminReview[];
+  meta: { total: number; page: number; limit: number; total_pages: number };
 }
 
 // =================== API Functions ===================
@@ -182,10 +247,13 @@ export const api = {
     fetchAPI<Product[]>(`/search/autocomplete?q=${encodeURIComponent(q)}`),
 
   // Build
-  suggestBuild: (budget: number, purpose?: string) =>
+  getBuildRatios: () =>
+    fetchAPI<BudgetRatiosResponse>('/builds/ratios'),
+
+  suggestBuild: (budget: number, purpose?: string, custom_ratios?: Record<string, number>) =>
     fetchAPI<BuildSuggestion>('/builds/suggest', {
       method: 'POST',
-      body: JSON.stringify({ budget, purpose }),
+      body: JSON.stringify({ budget, purpose, custom_ratios }),
     }),
 
   saveBuild: (data: { name: string; components: Record<string, any>; total_price: number }, token: string) =>
@@ -209,5 +277,83 @@ export const api = {
 
   getProfile: (token: string) =>
     fetchAPI<{ id: number; email: string; username: string; role: string }>('/auth/profile', { token }),
+
+  // Admin
+  adminGetStats: (token: string) =>
+    fetchAPI<AdminStats>('/admin/stats', { token }),
+
+  adminGetUsers: (token: string, params?: { page?: number; limit?: number; search?: string }) => {
+    const q = new URLSearchParams();
+    if (params?.page) q.set('page', String(params.page));
+    if (params?.limit) q.set('limit', String(params.limit));
+    if (params?.search) q.set('search', params.search);
+    const qs = q.toString();
+    return fetchAPI<AdminUsersResponse>(`/admin/users${qs ? `?${qs}` : ''}`, { token });
+  },
+
+  adminSetUserRole: (token: string, userId: number, role: string) =>
+    fetchAPI<AdminUser>(`/admin/users/${userId}/role`, { method: 'PUT', body: JSON.stringify({ role }), token }),
+
+  adminDeleteUser: (token: string, userId: number) =>
+    fetchAPI<{ message: string }>(`/admin/users/${userId}`, { method: 'DELETE', token }),
+
+  adminGetReviews: (token: string, params?: { page?: number; limit?: number; product_id?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.page) q.set('page', String(params.page));
+    if (params?.limit) q.set('limit', String(params.limit));
+    if (params?.product_id) q.set('product_id', String(params.product_id));
+    const qs = q.toString();
+    return fetchAPI<AdminReviewsResponse>(`/admin/reviews${qs ? `?${qs}` : ''}`, { token });
+  },
+
+  adminDeleteReview: (token: string, reviewId: number) =>
+    fetchAPI<{ message: string }>(`/admin/reviews/${reviewId}`, { method: 'DELETE', token }),
+
+  adminCreateProduct: (token: string, data: {
+    name: string; category: string; brand: string;
+    specs?: Record<string, unknown>; image_url?: string;
+    description?: string; base_price?: number;
+  }) =>
+    fetchAPI<Product>('/products', { method: 'POST', body: JSON.stringify(data), token }),
+
+  adminUpdateProduct: (token: string, id: number, data: Partial<{
+    name: string; category: string; brand: string;
+    specs: Record<string, unknown>; image_url: string;
+    description: string; base_price: number;
+  }>) =>
+    fetchAPI<Product>(`/products/${id}`, { method: 'PUT', body: JSON.stringify(data), token }),
+
+  adminDeleteProduct: (token: string, id: number) =>
+    fetchAPI<{ message: string }>(`/products/${id}`, { method: 'DELETE', token }),
+
+  adminGetCrawlStatus: (token: string) =>
+    fetchAPI<{
+      isCrawling: boolean;
+      logs: string[];
+      recentlyCrawled: { id: number; name: string; category: string; brand: string; last_crawled: string; shop_count: number; min_price: number }[];
+    }>('/crawler/status', { token }),
+
+  adminStopCrawl: (token: string) =>
+    fetchAPI<{ message: string }>('/crawler/stop', { method: 'POST', token }),
+
+  adminGetProductsWithoutPrices: (token: string) =>
+    fetchAPI<{ id: number; name: string; category: string; brand: string }[]>('/crawler/products-without-prices', { token }),
+
+  adminCrawlMissingPrices: (token: string) =>
+    fetchAPI<unknown[]>('/crawler/missing-prices', { method: 'POST', token }),
+
+  adminCrawlAll: (token: string) =>
+    fetchAPI<unknown[]>('/crawler/all', { method: 'POST', token }),
+
+  adminCrawlOne: (token: string, productId: number) =>
+    fetchAPI<unknown>(`/crawler/product/${productId}`, { method: 'POST', token }),
+
+  adminCrawlRange: (token: string, from?: number, to?: number) => {
+    const q = new URLSearchParams();
+    if (from != null) q.set('from', String(from));
+    if (to != null) q.set('to', String(to));
+    const qs = q.toString();
+    return fetchAPI<unknown[]>(`/crawler/range${qs ? `?${qs}` : ''}`, { method: 'POST', token });
+  },
 };
 
