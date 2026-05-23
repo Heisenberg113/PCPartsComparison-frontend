@@ -33,7 +33,6 @@ export default function AdminCrawlerPage() {
   const [missingLoading, setMissingLoading] = useState(false);
   const [showMissingList, setShowMissingList] = useState(false);
 
-  // Poll status every 2s while crawling, 5s while idle
   const fetchStatus = useCallback(async () => {
     if (!token) return;
     try {
@@ -44,11 +43,12 @@ export default function AdminCrawlerPage() {
     } catch { /* ignore */ }
   }, [token]);
 
+  // Single polling effect — 5 s interval (avoids duplicate interval bug and rate-limit blowout)
   useEffect(() => {
     fetchStatus();
-    pollRef.current = setInterval(fetchStatus, isCrawling ? 2000 : 5000);
+    pollRef.current = setInterval(fetchStatus, 5000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [fetchStatus, isCrawling]);
+  }, [fetchStatus]);
 
   // Auto-scroll log box to bottom
   useEffect(() => {
@@ -56,13 +56,6 @@ export default function AdminCrawlerPage() {
       logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight;
     }
   }, [logs]);
-
-  // Reset poll interval when crawl state changes
-  useEffect(() => {
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(fetchStatus, isCrawling ? 2000 : 5000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [isCrawling, fetchStatus]);
 
   async function runAction(key: string, fn: () => Promise<unknown>) {
     setActionLoading(key);
