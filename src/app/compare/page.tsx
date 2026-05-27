@@ -139,6 +139,16 @@ function SpecRow({ specKey, products, isOdd }: {
     return Math.max(d, 0);
   };
 
+  const getRivalName = (idx: number): string => {
+    if (idx !== winnerIdx || !isNumeric) return '';
+    const entries = nums.map((n, i) => ({ n, i })).filter(({ n, i }) => n !== null && i !== idx) as { n: number; i: number }[];
+    if (!entries.length) return '';
+    const best = lowerBetter
+      ? entries.reduce((a, b) => (a.n < b.n ? a : b))
+      : entries.reduce((a, b) => (a.n > b.n ? a : b));
+    return products[best.i]?.name ?? '';
+  };
+
   return (
     <tr style={{ background: isOdd ? 'rgba(255,255,255,0.015)' : 'transparent' }}>
       <td style={{
@@ -185,11 +195,14 @@ function SpecRow({ specKey, products, isOdd }: {
                     : '—'}
                 </span>
                 {adv >= 1 && (
-                  <span style={{
-                    fontSize: 9, fontWeight: 700, letterSpacing: '0.03em',
-                    background: 'rgba(16,185,129,0.2)', color: 'var(--color-success)',
-                    padding: '1px 5px', borderRadius: 4,
-                  }}>
+                  <span
+                    title={`Hơn ${getRivalName(idx)} ${Math.round(adv)}%`}
+                    style={{
+                      fontSize: 9, fontWeight: 700, letterSpacing: '0.03em',
+                      background: 'rgba(16,185,129,0.2)', color: 'var(--color-success)',
+                      padding: '1px 5px', borderRadius: 4, cursor: 'help',
+                    }}
+                  >
                     +{Math.round(adv)}%
                   </span>
                 )}
@@ -497,11 +510,17 @@ export default function ComparePage() {
                         const barPct = score != null && maxScore > 0
                           ? Math.max((score / maxScore) * 100, 5)
                           : 0;
+                        let rivalBenchName = '';
                         const adv = isWinner && score != null && validScores.length >= 2
                           ? (() => {
-                              const rivals = scores.filter((s, i): s is number => s !== null && i !== idx);
-                              const rival = Math.max(...rivals);
-                              return rival > 0 ? ((score - rival) / rival) * 100 : 0;
+                              let rivalScore = 0;
+                              scores.forEach((s, i) => {
+                                if (s !== null && i !== idx && s > rivalScore) {
+                                  rivalScore = s;
+                                  rivalBenchName = products[i]?.name ?? '';
+                                }
+                              });
+                              return rivalScore > 0 ? ((score - rivalScore) / rivalScore) * 100 : 0;
                             })()
                           : 0;
                         return (
@@ -521,11 +540,14 @@ export default function ComparePage() {
                                   {score != null ? Math.round(score).toLocaleString('vi-VN') : '—'}
                                 </span>
                                 {adv >= 1 && (
-                                  <span style={{
-                                    fontSize: 9, fontWeight: 700,
-                                    background: 'rgba(16,185,129,0.2)', color: 'var(--color-success)',
-                                    padding: '1px 5px', borderRadius: 4,
-                                  }}>
+                                  <span
+                                    title={`Hơn ${rivalBenchName} ${Math.round(adv)}%`}
+                                    style={{
+                                      fontSize: 9, fontWeight: 700,
+                                      background: 'rgba(16,185,129,0.2)', color: 'var(--color-success)',
+                                      padding: '1px 5px', borderRadius: 4, cursor: 'help',
+                                    }}
+                                  >
                                     +{Math.round(adv)}%
                                   </span>
                                 )}

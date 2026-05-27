@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import Link from 'next/link';
 import {
   Wrench, DollarSign, Loader2, Save, Check, ChevronDown, ChevronUp,
@@ -37,8 +37,25 @@ function parseM2SizeFF(ff: string): string | null {
   const m = (ff || '').match(/M\.2-?(\d+)/i);
   return m ? m[1] : null;
 }
+// Parse "2280" → {w:22, l:80}, "22110" → {w:22, l:110}, "2580" → {w:25, l:80}
+function parseM2Dims(size: string): { w: number; l: number } | null {
+  const m = size.match(/^(\d{2})(\d{2,3})$/);
+  if (!m) return null;
+  return { w: parseInt(m[1]), l: parseInt(m[2]) };
+}
+// A 22mm drive fits any slot with length ≥ drive length (including 25mm wide slots).
+// A 25mm drive only fits 25mm slots with length ≥ drive length.
+function m2DriveFitsSlot(driveSize: string, slotSize: string): boolean {
+  if (driveSize === slotSize) return true;
+  const drive = parseM2Dims(driveSize);
+  const slot = parseM2Dims(slotSize);
+  if (!drive || !slot) return false;
+  return slot.l >= drive.l && (slot.w === drive.w || (drive.w === 22 && slot.w === 25));
+}
 function m2SlotFits(size: string, slots: string[]): boolean {
-  return slots.some((s) => s.replace(/[^0-9/]/g, '').split('/').includes(size));
+  return slots.some((s) =>
+    s.replace(/[^0-9/]/g, '').split('/').filter(Boolean).some((n) => m2DriveFitsSlot(size, n))
+  );
 }
 function mbM2Slots(mb: Product): string[] {
   const s = mb.specs?.['M.2 Slots'];
@@ -48,6 +65,45 @@ function mbM2Slots(mb: Product): string[] {
 }
 function mbSataPorts(mb: Product): number {
   return parseInt(String(mb.specs?.['SATA 6.0 Gb/s Ports'] ?? '0').replace(/[^0-9]/g, '') || '0', 10);
+}
+
+function parseTDP(v: string | number | null | undefined): number {
+  if (typeof v === 'number') return v;
+  const m = (v || '').match(/(\d+)/);
+  return m ? parseInt(m[1], 10) : 0;
+}
+
+type PowerParams = {
+  cpu?: Product | null;
+  gpu?: Product | null;
+  mb?: Product | null;
+  ramItems?: (Product | null)[];
+  hddItems?: (Product | null)[];
+  cooler?: Product | null;
+};
+
+function calcSystemPower(p: PowerParams): { cpuTdp: number; gpuTdp: number; baseline: number; estimated: number; recommended: number } {
+  const cpuTdp = parseTDP(p.cpu?.specs?.['TDP']) || 0;
+  const gpuTdp = parseTDP(p.gpu?.specs?.['TDP']) || 0;
+  let baseline = p.mb ? 50 : 0;
+  for (const r of (p.ramItems ?? [])) {
+    if (r) baseline += getRamCapacity(r).sticks * 15;
+  }
+  for (const h of (p.hddItems ?? [])) {
+    if (!h) continue;
+    baseline += (h.specs?.['Form Factor'] ?? '').startsWith('3.5') ? 20 : 10;
+  }
+  if (p.cooler) baseline += 15;
+  const estimated = cpuTdp + gpuTdp + baseline;
+  const recommended = Math.ceil((estimated * 1.2) / 50) * 50;
+  return { cpuTdp, gpuTdp, baseline, estimated, recommended };
+}
+
+function getPsuPowerTag(p: PowerParams, psu: Product): string {
+  const { cpuTdp, gpuTdp, estimated, recommended } = calcSystemPower(p);
+  const psuWatts = parseTDP(psu?.specs?.['Wattage']) || 0;
+  if (psuWatts === 0 || (cpuTdp === 0 && gpuTdp === 0)) return `~${estimated}W ước tính`;
+  return psuWatts >= recommended ? `✓ Đủ tải (~${estimated}W)` : `⚠ Cần ≥${recommended}W (~${estimated}W)`;
 }
 
 // Read CPU socket from specs — tries all common key names
@@ -143,6 +199,167 @@ function getPickerFilters(category: string, existing: ExistingMap): {
   return {};
 }
 
+/** Key compatibility specs to display per category — mirrors PCPartPicker's "From parametric filter" */
+function getCompatDetails(category: string, product: Product): string[] {
+  const s = product.specs ?? {};
+  const items: string[] = [];
+  switch (category) {
+    case 'cpu': {
+      const socket = s['Socket'] ?? s['socket'];
+      const cores = s['Core Count'] ?? s['Cores'];
+      const threads = s['Thread Count'] ?? s['Threads'];
+      const tdp = s['TDP'];
+      const igpu = s['Integrated Graphics'] ?? s['integrated_graphics'];
+      const hasCooler = s['Includes Cooler'] ?? s['Includes CPU Cooler'];
+      if (socket) items.push(`Socket: ${socket}`);
+      if (cores) items.push(`${cores}C${threads ? `/${threads}T` : ''}`);
+      if (tdp) items.push(`TDP: ${tdp}`);
+      if (igpu && String(igpu).toLowerCase() !== 'none') items.push(`iGPU: ${igpu}`);
+      if (hasCooler === 'Yes' || hasCooler === true) items.push('✓ Có cooler kèm');
+      else if (hasCooler === 'No' || hasCooler === false) items.push('⚠ Không kèm cooler');
+      break;
+    }
+    case 'mainboard': {
+      const socket = s['Socket / CPU'] ?? s['Socket'] ?? s['socket_cpu'];
+      const ff = s['Form Factor'];
+      const chipset = s['Chipset'];
+      const memType = s['Memory Type'] ?? s['memory_type'];
+      const memSlots = s['Memory Slots'] ?? s['memory_slots'];
+      const m2raw = s['M.2 Slots'];
+      const sata = s['SATA 6.0 Gb/s Ports'] ?? s['sata_ports'];
+      if (socket) items.push(`Socket: ${socket}`);
+      if (ff) items.push(ff);
+      if (chipset) items.push(`Chipset: ${chipset}`);
+      if (memType) items.push(memType);
+      if (memSlots) items.push(`${memSlots} khe RAM`);
+      if (m2raw) items.push(`${Array.isArray(m2raw) ? m2raw.length : 1} khe M.2`);
+      if (sata) items.push(`SATA ×${String(sata).match(/\d+/)?.[0] ?? sata}`);
+      break;
+    }
+    case 'ram': {
+      const speed = s['Speed'] ?? s['speed'];
+      const modules = s['Modules'] ?? s['modules'];
+      const cas = s['CAS Latency'] ?? s['cas_latency'];
+      if (speed) items.push(speed);
+      if (modules) items.push(modules);
+      if (cas) items.push(`CL${cas}`);
+      break;
+    }
+    case 'harddrive': {
+      const type = s['Type'] ?? s['type'];
+      const cap = s['Capacity'] ?? s['capacity'];
+      const ff = s['Form Factor'];
+      const iface = s['Interface'];
+      if (type) items.push(type);
+      if (cap) items.push(typeof cap === 'number' ? `${cap} GB` : String(cap));
+      if (ff) items.push(ff);
+      if (iface) items.push(iface);
+      break;
+    }
+    case 'gpu': {
+      const mem = s['Memory'] ?? s['VRAM'];
+      const memType = s['Memory Type'] ?? s['memory_type'];
+      const tdp = s['TDP'];
+      if (mem) items.push(`${mem}${memType ? ` ${memType}` : ''}`);
+      if (tdp) items.push(`TDP: ${tdp}`);
+      break;
+    }
+    case 'psu': {
+      const watt = s['Wattage'];
+      const eff = s['Efficiency Rating'];
+      const ff = s['Form Factor'];
+      const mod = s['Modular'];
+      if (watt) items.push(`${watt}W`);
+      if (eff) items.push(eff);
+      if (ff) items.push(ff);
+      if (mod) items.push(mod);
+      break;
+    }
+    case 'case': {
+      const type = s['Type'] ?? s['Form Factor'];
+      const maxCooler = s['Maximum CPU Cooler Height'];
+      if (type) items.push(type);
+      if (maxCooler) items.push(`Max cooler: ${maxCooler}`);
+      break;
+    }
+    case 'cooler': {
+      const sockets = s['CPU Socket'];
+      const height = s['Height'];
+      const tdp = s['TDP'];
+      if (sockets) {
+        const list = Array.isArray(sockets) ? (sockets as string[]).slice(0, 4).join(', ') : String(sockets);
+        items.push(list);
+      }
+      if (height) items.push(String(height));
+      if (tdp) items.push(`TDP: ${tdp}`);
+      break;
+    }
+  }
+  return items.filter(Boolean);
+}
+
+// ─── Slot capacity helpers ────────────────────────────────────────────────────
+
+function getRamCapacity(p: Product): { sticks: number; gb: number } {
+  const m = (p.specs?.['Modules'] ?? p.specs?.modules ?? '').match(/^(\d+)\s*x\s*(\d+)\s*GB/i);
+  if (m) return { sticks: parseInt(m[1]), gb: parseInt(m[1]) * parseInt(m[2]) };
+  return { sticks: 2, gb: 0 };
+}
+
+function ramSlotStatus(mb: Product | null, items: (Product | null)[]): { used: number; total: number; gbUsed: number; gbMax: number } {
+  const total = mb ? (parseInt(String(mb.specs?.['Memory Slots'] ?? '4'), 10) || 4) : 4;
+  const gbMax = mb ? parseInt(String(mb.specs?.['Memory Max'] ?? '0').replace(/[^0-9]/g, '') || '0', 10) : 0;
+  let used = 0; let gbUsed = 0;
+  for (const p of items) {
+    if (!p) continue;
+    const c = getRamCapacity(p);
+    used += c.sticks; gbUsed += c.gb;
+  }
+  return { used, total, gbUsed, gbMax };
+}
+
+function hddSlotStatus(mb: Product | null, items: (Product | null)[]): { m2Used: number; m2Total: number; sataUsed: number; sataTotal: number } {
+  const m2Total = mb ? mbM2Slots(mb).length : 0;
+  const sataTotal = mb ? mbSataPorts(mb) : 0;
+  let m2Used = 0; let sataUsed = 0;
+  for (const p of items) {
+    if (!p) continue;
+    const ff = p.specs?.['Form Factor'] ?? '';
+    if (parseM2SizeFF(ff)) m2Used++;
+    else if (ff.startsWith('2.5') || ff.startsWith('3.5')) sataUsed++;
+  }
+  return { m2Used, m2Total, sataUsed, sataTotal };
+}
+
+/** Returns a warning string if this extra item exceeds mainboard capacity */
+function getExtraWarning(category: string, ep: Product, index: number, mb: Product | null, mainItem: Product | null, extras: Product[]): string | null {
+  if (!mb) return null;
+  const allItems: (Product | null)[] = [mainItem, ...extras];
+
+  if (category === 'ram') {
+    const stat = ramSlotStatus(mb, allItems.slice(0, index + 2)); // up to and including this extra
+    if (stat.used > stat.total) return `Vượt ${stat.total} khe RAM`;
+    if (stat.gbMax > 0 && stat.gbUsed > stat.gbMax) return `Vượt giới hạn ${stat.gbMax}GB`;
+    const mbType = mb.specs?.['Memory Type'] ?? mb.specs?.memory_type ?? '';
+    const speed = ep.specs?.['Speed'] ?? ep.specs?.speed ?? '';
+    if (mbType && speed && !speed.toUpperCase().startsWith(mbType.toUpperCase()))
+      return `RAM ${speed} ≠ ${mbType} của mainboard`;
+  }
+
+  if (category === 'harddrive') {
+    const stat = hddSlotStatus(mb, allItems.slice(0, index + 2));
+    const ff = ep.specs?.['Form Factor'] ?? '';
+    const size = parseM2SizeFF(ff);
+    if (size) {
+      if (!m2SlotFits(size, mbM2Slots(mb))) return `Khe M.2-${size} không có trên mainboard`;
+      if (stat.m2Used > stat.m2Total) return `Vượt ${stat.m2Total} khe M.2`;
+    } else if (ff.startsWith('2.5') || ff.startsWith('3.5')) {
+      if (stat.sataUsed > stat.sataTotal) return `Vượt ${stat.sataTotal} cổng SATA`;
+    }
+  }
+  return null;
+}
+
 /** Max units the user can add for RAM / HDD given the mainboard */
 function getMaxQuantity(category: string, product: Product, mb: Product | null): number {
   if (!mb) return 4;
@@ -221,6 +438,24 @@ function validateBuild(components: Record<string, ComponentEntry | null>): strin
       if (hdd.quantity > mbSataPorts(mb)) warnings.push(`Ổ ${ff}: chỉ có ${mbSataPorts(mb)} cổng SATA, không thể gắn ${hdd.quantity} ổ.`);
     }
   }
+
+  // PSU wattage vs estimated system TDP
+  const psu = components['psu'];
+  if (psu) {
+    const { estimated, recommended } = calcSystemPower({
+      cpu,
+      gpu: components['gpu']?.product ?? null,
+      mb,
+      ramItems: [components['ram']?.product ?? null],
+      hddItems: [components['harddrive']?.product ?? null],
+      cooler: components['cooler']?.product ?? null,
+    });
+    const psuWatts = parseTDP(psu.product.specs?.['Wattage']) || 0;
+    if (psuWatts > 0 && estimated > 0 && psuWatts < recommended) {
+      warnings.push(`PSU ${psuWatts}W có thể không đủ — ước tính cần ~${recommended}W.`);
+    }
+  }
+
   return warnings;
 }
 
@@ -245,7 +480,9 @@ function ComponentPicker({
       const params = new URLSearchParams({ category, limit: '50' });
       if (query.trim()) params.set('search', query.trim());
       const res = await api.getProducts(params.toString());
-      setResults(res.data.filter((p) => p.base_price > 0));
+      const withPrice = res.data.filter((p) => p.base_price > 0);
+      const noPrice = res.data.filter((p) => !p.base_price || p.base_price <= 0);
+      setResults([...withPrice, ...noPrice]);
     } finally {
       setLoading(false);
     }
@@ -354,6 +591,8 @@ function BuildCard({
     () => Object.fromEntries(Object.entries(build.components).map(([k, v]) => [k, { ...v, quantity: 1 }]))
   );
   const [pickerKey, setPickerKey] = useState<string | null>(null);
+  const [extras, setExtras] = useState<Record<string, Product[]>>({ ram: [], harddrive: [] });
+  const [addingExtra, setAddingExtra] = useState<string | null>(null);
   const [buildName, setBuildName] = useState(build.label || '');
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -365,7 +604,8 @@ function BuildCard({
     Object.entries(editComponents).map(([k, v]) => [k, { product: v.product }])
   );
 
-  const totalPrice = Object.values(editComponents).reduce((s, c) => s + Number(c.product.base_price) * c.quantity, 0);
+  const totalPrice = Object.values(editComponents).reduce((s, c) => s + Number(c.product.base_price) * c.quantity, 0)
+    + Object.values(extras).flat().reduce((s, p) => s + Number(p.base_price), 0);
   const withinBudget = totalPrice <= build.budget;
   const serverWarnings = build.compatibility_warnings ?? [];
 
@@ -384,7 +624,12 @@ function BuildCard({
     try {
       const comps: Record<string, any> = {};
       for (const [k, c] of Object.entries(editComponents)) {
-        comps[k] = { product_id: c.product.id, name: c.product.name, price: c.product.base_price, image_url: c.product.image_url, quantity: c.quantity };
+        comps[k] = { product_id: c.product.id, name: c.product.name, price: c.product.base_price, image_url: c.product.image_url, quantity: 1 };
+      }
+      for (const [cat, prods] of Object.entries(extras)) {
+        prods.forEach((p, i) => {
+          comps[`${cat}_${i + 2}`] = { product_id: p.id, name: p.name, price: p.base_price, image_url: p.image_url, quantity: 1 };
+        });
       }
       await api.saveBuild({ name: buildName.trim(), components: comps, total_price: Math.round(totalPrice) }, token);
       setSaveSuccess(true);
@@ -430,41 +675,111 @@ function BuildCard({
         {COMPONENT_ORDER.filter((k) => editComponents[k]).map((key) => {
           const comp = editComponents[key];
           if (!comp) return null;
-          const canQty = key === 'ram' || key === 'harddrive';
-          const maxQty = canQty ? getMaxQuantity(key, comp.product, mb) : 1;
-          const itemTotal = Number(comp.product.base_price) * comp.quantity;
+          const isMulti = key === 'ram' || key === 'harddrive';
+          const extraList = extras[key] ?? [];
           return (
-            <div key={key} className="card" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px' }}>
-              <img src={comp.product.image_url || 'https://placehold.co/48x48/1a1a2e/6366f1'} alt=""
-                style={{ width: '48px', height: '48px', objectFit: 'contain', borderRadius: '6px', background: 'var(--color-bg-secondary)', padding: '4px', flexShrink: 0 }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
-                  <span style={{ padding: '1px 6px', borderRadius: '3px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', background: `${RATIO_COLORS[key]}22`, color: RATIO_COLORS[key] ?? 'var(--color-primary)' }}>{key}</span>
-                  {comp.over_budget && <span className="badge badge-warning" style={{ fontSize: '10px' }}>Vượt ngân sách</span>}
+            <Fragment key={key}>
+              <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px' }}>
+                <img src={comp.product.image_url || 'https://placehold.co/48x48/1a1a2e/6366f1'} alt=""
+                  style={{ width: '48px', height: '48px', objectFit: 'contain', borderRadius: '6px', background: 'var(--color-bg-secondary)', padding: '4px', flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                    <span style={{ padding: '1px 6px', borderRadius: '3px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', background: `${RATIO_COLORS[key]}22`, color: RATIO_COLORS[key] ?? 'var(--color-primary)' }}>{key}</span>
+                    {comp.over_budget && <span className="badge badge-warning" style={{ fontSize: '10px' }}>Vượt ngân sách</span>}
+                  </div>
+                  <Link href={`/products/${comp.product.id}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', textDecoration: 'none' }}>
+                    {comp.product.name}
+                  </Link>
+                  {(() => {
+                    const details = getCompatDetails(key, comp.product);
+                    if (key === 'psu') details.push(getPsuPowerTag({
+                      cpu: editComponents['cpu']?.product ?? null,
+                      gpu: editComponents['gpu']?.product ?? null,
+                      mb: editComponents['mainboard']?.product ?? null,
+                      ramItems: [editComponents['ram']?.product ?? null, ...(extras['ram'] ?? [])],
+                      hddItems: [editComponents['harddrive']?.product ?? null, ...(extras['harddrive'] ?? [])],
+                      cooler: editComponents['cooler']?.product ?? null,
+                    }, comp.product));
+                    return details.length > 0 ? (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: '4px' }}>
+                        {details.map((d, i) => (
+                          <span key={i} style={{ fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: d.startsWith('⚠') ? 'rgba(245,158,11,0.1)' : d.startsWith('✓') ? 'rgba(16,185,129,0.1)' : 'var(--color-bg)', border: `1px solid ${d.startsWith('⚠') ? 'rgba(245,158,11,0.35)' : d.startsWith('✓') ? 'rgba(16,185,129,0.35)' : 'var(--color-border)'}`, color: d.startsWith('⚠') ? '#f59e0b' : d.startsWith('✓') ? '#10b981' : 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>{d}</span>
+                        ))}
+                      </div>
+                    ) : null;
+                  })()}
+                  <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '3px' }}>
+                    {formatPrice(comp.product.base_price)}
+                    {' · '}Ngân sách: {formatPrice(comp.budget_allocated)}
+                  </div>
                 </div>
-                <Link href={`/products/${comp.product.id}`} style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', textDecoration: 'none' }}>
-                  {comp.product.name}
-                </Link>
-                <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
-                  {formatPrice(comp.product.base_price)}{comp.quantity > 1 ? ` × ${comp.quantity} = ${formatPrice(itemTotal)}` : ''}
-                  {' · '}Ngân sách: {formatPrice(comp.budget_allocated)}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+                  <span style={{ fontWeight: 700, color: 'var(--color-primary)', whiteSpace: 'nowrap', fontSize: '14px' }}>
+                    {formatPrice(Number(comp.product.base_price))}
+                  </span>
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    {isMulti && (() => {
+                      let canAdd = true; let hint = '';
+                      if (key === 'ram') {
+                        const st = ramSlotStatus(mb, [comp.product, ...(extras['ram'] ?? [])]);
+                        canAdd = st.used < st.total && (st.gbMax === 0 || st.gbUsed < st.gbMax);
+                        hint = canAdd ? `${st.used}/${st.total} khe` : `Đã dùng hết ${st.total} khe RAM`;
+                      } else if (key === 'harddrive') {
+                        const st = hddSlotStatus(mb, [comp.product, ...(extras['harddrive'] ?? [])]);
+                        canAdd = st.m2Used < st.m2Total || st.sataUsed < st.sataTotal;
+                        hint = canAdd ? `M.2: ${st.m2Used}/${st.m2Total} · SATA: ${st.sataUsed}/${st.sataTotal}` : 'Đã hết khe M.2 và cổng SATA';
+                      }
+                      return (
+                        <button onClick={() => canAdd && setAddingExtra(key)} disabled={!canAdd} title={hint}
+                          className="btn btn-ghost btn-sm" style={{ fontSize: '11px', padding: '3px 8px', gap: '4px', opacity: canAdd ? 1 : 0.35, cursor: canAdd ? 'pointer' : 'not-allowed' }}>
+                          <Plus size={11} /> Thêm
+                        </button>
+                      );
+                    })()}
+                    <button onClick={() => setPickerKey(key)} className="btn btn-ghost btn-sm" style={{ fontSize: '11px', padding: '3px 8px', gap: '4px' }}>
+                      <RefreshCw size={11} /> Thay
+                    </button>
+                  </div>
                 </div>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
-                <span style={{ fontWeight: 700, color: 'var(--color-primary)', whiteSpace: 'nowrap', fontSize: '14px' }}>
-                  {formatPrice(itemTotal)}
-                </span>
-                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                  {canQty && maxQty > 1 && (
-                    <QtyControl qty={comp.quantity} max={maxQty}
-                      onChange={(n) => setEditComponents((p) => ({ ...p, [key]: { ...p[key], quantity: n } }))} />
-                  )}
-                  <button onClick={() => setPickerKey(key)} className="btn btn-ghost btn-sm" style={{ fontSize: '11px', padding: '3px 8px', gap: '4px' }}>
-                    <RefreshCw size={11} /> Thay
-                  </button>
-                </div>
-              </div>
-            </div>
+              {extraList.map((ep, ei) => {
+                const warn = getExtraWarning(key, ep, ei, mb, comp.product, extraList);
+                return (
+                  <div key={`extra-${ei}`} className="card" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 16px', marginLeft: '20px', borderLeft: `3px solid ${warn ? '#f59e0b' : (RATIO_COLORS[key] ?? 'var(--color-primary)')}44` }}>
+                    <img src={ep.image_url || 'https://placehold.co/40x40/1a1a2e/6366f1'} alt=""
+                      style={{ width: '40px', height: '40px', objectFit: 'contain', borderRadius: '6px', background: 'var(--color-bg-secondary)', padding: '4px', flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '10px', color: warn ? '#f59e0b' : (RATIO_COLORS[key] ?? 'var(--color-text-muted)'), fontWeight: 700, textTransform: 'uppercase', marginBottom: '2px' }}>
+                        {warn ? `⚠️ ${warn}` : `+ ${categoryLabels[key] ?? key} bổ sung`}
+                      </div>
+                      <Link href={`/products/${ep.id}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', textDecoration: 'none' }}>
+                        {ep.name}
+                      </Link>
+                      {(() => {
+                        const details = getCompatDetails(key, ep);
+                        return details.length > 0 ? (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: '4px' }}>
+                            {details.map((d, i) => (
+                              <span key={i} style={{ fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: d.startsWith('⚠') ? 'rgba(245,158,11,0.1)' : d.startsWith('✓') ? 'rgba(16,185,129,0.1)' : 'var(--color-bg)', border: `1px solid ${d.startsWith('⚠') ? 'rgba(245,158,11,0.35)' : d.startsWith('✓') ? 'rgba(16,185,129,0.35)' : 'var(--color-border)'}`, color: d.startsWith('⚠') ? '#f59e0b' : d.startsWith('✓') ? '#10b981' : 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>{d}</span>
+                            ))}
+                          </div>
+                        ) : null;
+                      })()}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+                      <span style={{ fontWeight: 700, color: 'var(--color-primary)', whiteSpace: 'nowrap', fontSize: '14px' }}>
+                        {formatPrice(Number(ep.base_price))}
+                      </span>
+                      <button
+                        onClick={() => setExtras((prev) => ({ ...prev, [key]: prev[key].filter((_, j) => j !== ei) }))}
+                        className="btn btn-ghost btn-sm" style={{ fontSize: '11px', padding: '3px 8px', color: 'var(--color-danger)' }}>
+                        <X size={11} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </Fragment>
           );
         })}
       </div>
@@ -513,6 +828,17 @@ function BuildCard({
           onClose={() => setPickerKey(null)}
         />
       )}
+      {addingExtra && (
+        <ComponentPicker
+          category={addingExtra}
+          existing={existing}
+          onSelect={(p) => {
+            setExtras((prev) => ({ ...prev, [addingExtra]: [...(prev[addingExtra] ?? []), p] }));
+            setAddingExtra(null);
+          }}
+          onClose={() => setAddingExtra(null)}
+        />
+      )}
     </div>
   );
 }
@@ -524,6 +850,8 @@ function CustomBuildTab({ budget, token, isLoggedIn }: { budget: number; token: 
     cpu: null, cooler: null, mainboard: null, ram: null, gpu: null, harddrive: null, psu: null, case: null,
   });
   const [pickerKey, setPickerKey] = useState<string | null>(null);
+  const [custExtras, setCustExtras] = useState<Record<string, Product[]>>({ ram: [], harddrive: [] });
+  const [custAddingExtra, setCustAddingExtra] = useState<string | null>(null);
   const [buildName, setBuildName] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -535,7 +863,8 @@ function CustomBuildTab({ budget, token, isLoggedIn }: { budget: number; token: 
   );
 
   const warnings = validateBuild(components);
-  const totalPrice = Object.values(components).reduce((s, e) => s + (e ? Number(e.product.base_price) * e.quantity : 0), 0);
+  const totalPrice = Object.values(components).reduce((s, e) => s + (e ? Number(e.product.base_price) * e.quantity : 0), 0)
+    + Object.values(custExtras).flat().reduce((s, p) => s + Number(p.base_price), 0);
   const withinBudget = totalPrice <= budget;
 
   const handleSave = async () => {
@@ -545,7 +874,12 @@ function CustomBuildTab({ budget, token, isLoggedIn }: { budget: number; token: 
     try {
       const comps: Record<string, any> = {};
       for (const [k, e] of Object.entries(components)) {
-        if (e) comps[k] = { product_id: e.product.id, name: e.product.name, price: e.product.base_price, image_url: e.product.image_url, quantity: e.quantity };
+        if (e) comps[k] = { product_id: e.product.id, name: e.product.name, price: e.product.base_price, image_url: e.product.image_url, quantity: 1 };
+      }
+      for (const [cat, prods] of Object.entries(custExtras)) {
+        prods.forEach((p, i) => {
+          comps[`${cat}_${i + 2}`] = { product_id: p.id, name: p.name, price: p.base_price, image_url: p.image_url, quantity: 1 };
+        });
       }
       await api.saveBuild({ name: buildName.trim(), components: comps, total_price: Math.round(totalPrice) }, token);
       setSaveSuccess(true);
@@ -574,58 +908,122 @@ function CustomBuildTab({ budget, token, isLoggedIn }: { budget: number; token: 
       {/* Component slots */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
         {COMPONENT_ORDER.map((key) => {
-          // Cooler slot only appears when CPU is selected and doesn't include a cooler
-          if (key === 'cooler') {
-            const selectedCpu = components['cpu']?.product;
-            if (!selectedCpu || !cpuNeedsCooler(selectedCpu)) return null;
-          }
+          if (key === 'cooler' && !components['cpu']?.product) return null;
           const entry = components[key];
-          const canQty = key === 'ram' || key === 'harddrive';
-          const maxQty = entry && canQty ? getMaxQuantity(key, entry.product, mb) : 1;
-          const itemTotal = entry ? Number(entry.product.base_price) * entry.quantity : 0;
+          const isMulti = key === 'ram' || key === 'harddrive';
+          const extraList = custExtras[key] ?? [];
           return (
-            <div key={key} className="card" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px' }}>
-              {entry ? (
-                <>
-                  <img src={entry.product.image_url || 'https://placehold.co/48x48/1a1a2e/6366f1'} alt=""
-                    style={{ width: '48px', height: '48px', objectFit: 'contain', borderRadius: '6px', background: 'var(--color-bg-secondary)', padding: '4px', flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ padding: '1px 6px', borderRadius: '3px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', background: `${RATIO_COLORS[key]}22`, color: RATIO_COLORS[key] ?? 'var(--color-primary)' }}>{key}</span>
-                    <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{entry.product.name}</div>
-                    <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
-                      {formatPrice(entry.product.base_price)}{entry.quantity > 1 ? ` × ${entry.quantity} = ${formatPrice(itemTotal)}` : ''}
+            <Fragment key={key}>
+              <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px' }}>
+                {entry ? (
+                  <>
+                    <img src={entry.product.image_url || 'https://placehold.co/48x48/1a1a2e/6366f1'} alt=""
+                      style={{ width: '48px', height: '48px', objectFit: 'contain', borderRadius: '6px', background: 'var(--color-bg-secondary)', padding: '4px', flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ padding: '1px 6px', borderRadius: '3px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', background: `${RATIO_COLORS[key]}22`, color: RATIO_COLORS[key] ?? 'var(--color-primary)' }}>{key}</span>
+                      <Link href={`/products/${entry.product.id}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: '2px' }}>{entry.product.name}</Link>
+                      {(() => {
+                        const details = getCompatDetails(key, entry.product);
+                        if (key === 'psu') details.push(getPsuPowerTag({
+                          cpu: components['cpu']?.product ?? null,
+                          gpu: components['gpu']?.product ?? null,
+                          mb: components['mainboard']?.product ?? null,
+                          ramItems: [components['ram']?.product ?? null, ...(custExtras['ram'] ?? [])],
+                          hddItems: [components['harddrive']?.product ?? null, ...(custExtras['harddrive'] ?? [])],
+                          cooler: components['cooler']?.product ?? null,
+                        }, entry.product));
+                        return details.length > 0 ? (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: '4px' }}>
+                            {details.map((d, i) => (
+                              <span key={i} style={{ fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: d.startsWith('⚠') ? 'rgba(245,158,11,0.1)' : d.startsWith('✓') ? 'rgba(16,185,129,0.1)' : 'var(--color-bg)', border: `1px solid ${d.startsWith('⚠') ? 'rgba(245,158,11,0.35)' : d.startsWith('✓') ? 'rgba(16,185,129,0.35)' : 'var(--color-border)'}`, color: d.startsWith('⚠') ? '#f59e0b' : d.startsWith('✓') ? '#10b981' : 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>{d}</span>
+                            ))}
+                          </div>
+                        ) : null;
+                      })()}
+                      <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '3px' }}>
+                        {formatPrice(entry.product.base_price)}
+                      </div>
                     </div>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
-                    <span style={{ fontWeight: 700, color: 'var(--color-primary)', fontSize: '14px', whiteSpace: 'nowrap' }}>{formatPrice(itemTotal)}</span>
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                      {canQty && maxQty > 1 && (
-                        <QtyControl qty={entry.quantity} max={maxQty}
-                          onChange={(n) => setComponents((p) => ({ ...p, [key]: p[key] ? { ...p[key]!, quantity: n } : null }))} />
-                      )}
-                      <button onClick={() => setPickerKey(key)} className="btn btn-ghost btn-sm" style={{ fontSize: '11px', padding: '3px 8px' }}>
-                        <RefreshCw size={11} />
-                      </button>
-                      <button onClick={() => setComponents((p) => ({ ...p, [key]: null }))} className="btn btn-ghost btn-sm" style={{ fontSize: '11px', padding: '3px 8px', color: 'var(--color-danger)' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+                      <span style={{ fontWeight: 700, color: 'var(--color-primary)', fontSize: '14px', whiteSpace: 'nowrap' }}>{formatPrice(Number(entry.product.base_price))}</span>
+                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                        {isMulti && (() => {
+                          let canAdd = true; let hint = '';
+                          if (key === 'ram') {
+                            const st = ramSlotStatus(mb, [entry.product, ...(custExtras['ram'] ?? [])]);
+                            canAdd = st.used < st.total && (st.gbMax === 0 || st.gbUsed < st.gbMax);
+                            hint = canAdd ? `${st.used}/${st.total} khe` : `Đã dùng hết ${st.total} khe RAM`;
+                          } else if (key === 'harddrive') {
+                            const st = hddSlotStatus(mb, [entry.product, ...(custExtras['harddrive'] ?? [])]);
+                            canAdd = st.m2Used < st.m2Total || st.sataUsed < st.sataTotal;
+                            hint = canAdd ? `M.2: ${st.m2Used}/${st.m2Total} · SATA: ${st.sataUsed}/${st.sataTotal}` : 'Đã hết khe M.2 và cổng SATA';
+                          }
+                          return (
+                            <button onClick={() => canAdd && setCustAddingExtra(key)} disabled={!canAdd} title={hint}
+                              className="btn btn-ghost btn-sm" style={{ fontSize: '11px', padding: '3px 8px', gap: '4px', opacity: canAdd ? 1 : 0.35, cursor: canAdd ? 'pointer' : 'not-allowed' }}>
+                              <Plus size={11} /> Thêm
+                            </button>
+                          );
+                        })()}
+                        <button onClick={() => setPickerKey(key)} className="btn btn-ghost btn-sm" style={{ fontSize: '11px', padding: '3px 8px' }}>
+                          <RefreshCw size={11} />
+                        </button>
+                        <button onClick={() => setComponents((p) => ({ ...p, [key]: null }))} className="btn btn-ghost btn-sm" style={{ fontSize: '11px', padding: '3px 8px', color: 'var(--color-danger)' }}>
+                          <X size={11} />
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ width: '48px', height: '48px', borderRadius: '6px', background: 'var(--color-bg-secondary)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Plus size={18} style={{ color: 'var(--color-text-muted)' }} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '13px', color: 'var(--color-text-muted)' }}>{categoryLabels[key] ?? key} — chưa chọn</div>
+                    </div>
+                    <button onClick={() => setPickerKey(key)} className="btn btn-primary btn-sm" style={{ fontSize: '12px' }}>
+                      <Plus size={13} /> Chọn
+                    </button>
+                  </>
+                )}
+              </div>
+              {entry && extraList.map((ep, ei) => {
+                const warn = getExtraWarning(key, ep, ei, mb, entry.product, extraList);
+                return (
+                  <div key={`extra-${ei}`} className="card" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 16px', marginLeft: '20px', borderLeft: `3px solid ${warn ? '#f59e0b' : (RATIO_COLORS[key] ?? 'var(--color-primary)')}44` }}>
+                    <img src={ep.image_url || 'https://placehold.co/40x40/1a1a2e/6366f1'} alt=""
+                      style={{ width: '40px', height: '40px', objectFit: 'contain', borderRadius: '6px', background: 'var(--color-bg-secondary)', padding: '4px', flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '10px', color: warn ? '#f59e0b' : (RATIO_COLORS[key] ?? 'var(--color-text-muted)'), fontWeight: 700, textTransform: 'uppercase', marginBottom: '2px' }}>
+                        {warn ? `⚠️ ${warn}` : `+ ${categoryLabels[key] ?? key} bổ sung`}
+                      </div>
+                      <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--color-text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ep.name}</div>
+                      {(() => {
+                        const details = getCompatDetails(key, ep);
+                        return details.length > 0 ? (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: '4px' }}>
+                            {details.map((d, i) => (
+                              <span key={i} style={{ fontSize: '10px', padding: '1px 5px', borderRadius: '3px', background: d.startsWith('⚠') ? 'rgba(245,158,11,0.1)' : d.startsWith('✓') ? 'rgba(16,185,129,0.1)' : 'var(--color-bg)', border: `1px solid ${d.startsWith('⚠') ? 'rgba(245,158,11,0.35)' : d.startsWith('✓') ? 'rgba(16,185,129,0.35)' : 'var(--color-border)'}`, color: d.startsWith('⚠') ? '#f59e0b' : d.startsWith('✓') ? '#10b981' : 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>{d}</span>
+                            ))}
+                          </div>
+                        ) : null;
+                      })()}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+                      <span style={{ fontWeight: 700, color: 'var(--color-primary)', whiteSpace: 'nowrap', fontSize: '14px' }}>
+                        {formatPrice(Number(ep.base_price))}
+                      </span>
+                      <button
+                        onClick={() => setCustExtras((prev) => ({ ...prev, [key]: prev[key].filter((_, j) => j !== ei) }))}
+                        className="btn btn-ghost btn-sm" style={{ fontSize: '11px', padding: '3px 8px', color: 'var(--color-danger)' }}>
                         <X size={11} />
                       </button>
                     </div>
                   </div>
-                </>
-              ) : (
-                <>
-                  <div style={{ width: '48px', height: '48px', borderRadius: '6px', background: 'var(--color-bg-secondary)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Plus size={18} style={{ color: 'var(--color-text-muted)' }} />
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '13px', color: 'var(--color-text-muted)' }}>{categoryLabels[key] ?? key} — chưa chọn</div>
-                  </div>
-                  <button onClick={() => setPickerKey(key)} className="btn btn-primary btn-sm" style={{ fontSize: '12px' }}>
-                    <Plus size={13} /> Chọn
-                  </button>
-                </>
-              )}
-            </div>
+                );
+              })}
+            </Fragment>
           );
         })}
       </div>
@@ -673,11 +1071,21 @@ function CustomBuildTab({ budget, token, isLoggedIn }: { budget: number; token: 
           existing={existing}
           onSelect={(p) => setComponents((prev) => {
             const next = { ...prev, [pickerKey]: { product: p, quantity: 1 } };
-            // Clear cooler if the new CPU already includes one
             if (pickerKey === 'cpu' && !cpuNeedsCooler(p)) next['cooler'] = null;
             return next;
           })}
           onClose={() => setPickerKey(null)}
+        />
+      )}
+      {custAddingExtra && (
+        <ComponentPicker
+          category={custAddingExtra}
+          existing={existing}
+          onSelect={(p) => {
+            setCustExtras((prev) => ({ ...prev, [custAddingExtra]: [...(prev[custAddingExtra] ?? []), p] }));
+            setCustAddingExtra(null);
+          }}
+          onClose={() => setCustAddingExtra(null)}
         />
       )}
     </div>
